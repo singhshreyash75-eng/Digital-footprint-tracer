@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     debug: bool = False
 
+    database_url: str
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",

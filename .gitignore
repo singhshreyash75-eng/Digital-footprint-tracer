@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Environment
+.env
+
+# IDE / macOS
+.vscode/
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+
+# Build
+dist/
+build/
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Logs
+*.log
