@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.investigations.models import Investigation
+from app.investigations.models import Investigation, Target
 
 
 async def create_investigation(
@@ -16,7 +16,10 @@ async def create_investigation(
 
     result = await db.execute(
         select(Investigation)
-        .options(selectinload(Investigation.provider_runs))
+        .options(
+            selectinload(Investigation.targets),
+            selectinload(Investigation.provider_runs),
+        )
         .where(Investigation.id == investigation.id)
     )
 
@@ -29,7 +32,10 @@ async def get_investigation(
 ) -> Investigation | None:
     result = await db.execute(
         select(Investigation)
-        .options(selectinload(Investigation.provider_runs))
+        .options(
+            selectinload(Investigation.targets),
+            selectinload(Investigation.provider_runs),
+        )
         .where(Investigation.id == investigation_id)
     )
 

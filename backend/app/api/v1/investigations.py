@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.investigations import service
+from app.investigations.models import TargetType
 from app.investigations.schemas import (
     InvestigationCreate,
     InvestigationResponse,
@@ -28,10 +29,13 @@ async def create_investigation(
 ):
     investigation = await service.create_investigation(db, data)
 
-    run_username_provider.delay(
-        str(investigation.id),
-        data.name.strip(),
-    )
+    for target in investigation.targets:
+        if target.type == TargetType.USERNAME:
+            run_username_provider.delay(
+                str(investigation.id),
+                str(target.id),
+                target.normalized_value,
+            )
 
     return investigation
 

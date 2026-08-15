@@ -16,34 +16,14 @@ from app.providers.registry import provider_registry
 from app.providers.username.test_provider import TestUsernameProvider
 
 
-async def execute_provider(
-    investigation_id: UUID,
-    username: str,
-) -> dict[str, Any]:
-    provider = provider_registry.get("test_username")
-
-    if provider is None:
-        provider = TestUsernameProvider()
-        provider_registry.register(provider)
-
-    target = SimpleNamespace(
-        id=None,
-        investigation_id=investigation_id,
-        normalized_value=username,
-    )
-
-    return {
-        "provider": provider,
-        "target": target,
-    }
-
-
 @celery_app.task(name="run_username_provider")
 def run_username_provider(
     investigation_id: str,
+    target_id: str,
     username: str,
 ) -> dict[str, Any]:
     investigation_uuid = UUID(investigation_id)
+    target_uuid = UUID(target_id)
 
     with SessionLocal() as db:
         investigation = db.get(
@@ -54,14 +34,13 @@ def run_username_provider(
         if investigation is None:
             raise ValueError("Investigation not found")
 
-        investigation.status = InvestigationStatus.RUNNING
-        investigation.started_at = datetime.now(timezone.utc)
-
         provider = provider_registry.get("test_username")
 
         if provider is None:
             provider = TestUsernameProvider()
             provider_registry.register(provider)
+
+        investigation.status = InvestigationStatus.RUNNING
 
         provider_run = ProviderRun(
             investigation_id=investigation_uuid,
@@ -76,19 +55,14 @@ def run_username_provider(
 
         try:
             target = SimpleNamespace(
-                id=None,
+                id=target_uuid,
                 investigation_id=investigation_uuid,
                 normalized_value=username,
             )
 
-            result = asyncio.run(
-                provider.execute(target)
-            )
+            result = asyncio.run(provider.execute(target))
 
-            provider_run.status = ProviderRunStatus(
-                result.status.value
-            )
-
+            provider_run.status = ProviderRunStatus(result.status.value)
             provider_run.result = {
                 "observations": [
                     {
@@ -102,7 +76,6 @@ def run_username_provider(
                 ],
                 "raw_data": result.raw_data,
             }
-
             provider_run.error_code = result.error_code
             provider_run.error_message = result.error_message
             provider_run.completed_at = datetime.now(timezone.utc)
@@ -112,13 +85,13 @@ def run_username_provider(
                 if result.status.value == "SUCCESS"
                 else InvestigationStatus.PARTIAL
             )
-
             investigation.completed_at = datetime.now(timezone.utc)
 
             db.commit()
 
             return {
                 "investigation_id": investigation_id,
+                "target_id": target_id,
                 "provider": provider.name,
                 "status": result.status.value,
                 "provider_run_id": str(provider_run.id),
@@ -134,5 +107,4 @@ def run_username_provider(
             investigation.completed_at = datetime.now(timezone.utc)
 
             db.commit()
-
             raise
