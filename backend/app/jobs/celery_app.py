@@ -2,11 +2,11 @@ from celery import Celery
 
 from app.core.config import settings
 
-
 celery_app = Celery(
     "digital-footprint-tracer",
     broker=settings.redis_url,
     backend=settings.redis_url,
+    include=["app.jobs.tasks"],
 )
 
 celery_app.conf.update(

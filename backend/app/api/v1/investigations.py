@@ -9,6 +9,7 @@ from app.investigations.schemas import (
     InvestigationCreate,
     InvestigationResponse,
 )
+from app.jobs.tasks import run_username_provider
 
 router = APIRouter(
     prefix="/investigations",
@@ -25,7 +26,14 @@ async def create_investigation(
     data: InvestigationCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.create_investigation(db, data)
+    investigation = await service.create_investigation(db, data)
+
+    run_username_provider.delay(
+        str(investigation.id),
+        data.name.strip(),
+    )
+
+    return investigation
 
 
 @router.get(

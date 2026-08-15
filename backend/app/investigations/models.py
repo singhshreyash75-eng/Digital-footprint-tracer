@@ -2,14 +2,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import (
-    DateTime,
-    Enum as SAEnum,
-    ForeignKey,
-    String,
-    Text,
-    func,
-)
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, JSON, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +27,17 @@ class TargetType(str, Enum):
     EMAIL = "EMAIL"
 
 
+class ProviderRunStatus(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    NOT_FOUND = "NOT_FOUND"
+    RATE_LIMITED = "RATE_LIMITED"
+    TIMEOUT = "TIMEOUT"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+
+
 class Investigation(Base):
     __tablename__ = "investigations"
 
@@ -43,10 +47,7 @@ class Investigation(Base):
         default=uuid4,
     )
 
-    name: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     status: Mapped[InvestigationStatus] = mapped_column(
         SAEnum(InvestigationStatus, name="investigation_status"),
@@ -55,19 +56,14 @@ class Investigation(Base):
     )
 
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
+        DateTime(timezone=True)
     )
 
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
+        DateTime(timezone=True)
     )
 
-    error_message: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-    )
+    error_message: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -76,6 +72,11 @@ class Investigation(Base):
     )
 
     targets: Mapped[list["Target"]] = relationship(
+        back_populates="investigation",
+        cascade="all, delete-orphan",
+    )
+
+    provider_runs: Mapped[list["ProviderRun"]] = relationship(
         back_populates="investigation",
         cascade="all, delete-orphan",
     )
@@ -101,10 +102,7 @@ class Target(Base):
         nullable=False,
     )
 
-    value: Mapped[str] = mapped_column(
-        String(500),
-        nullable=False,
-    )
+    value: Mapped[str] = mapped_column(String(500), nullable=False)
 
     normalized_value: Mapped[str] = mapped_column(
         String(500),
@@ -119,4 +117,49 @@ class Target(Base):
 
     investigation: Mapped["Investigation"] = relationship(
         back_populates="targets",
+    )
+
+
+class ProviderRun(Base):
+    __tablename__ = "provider_runs"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+
+    investigation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("investigations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    provider_name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    status: Mapped[ProviderRunStatus] = mapped_column(
+        SAEnum(ProviderRunStatus, name="provider_run_status"),
+        default=ProviderRunStatus.PENDING,
+        nullable=False,
+    )
+
+    result: Mapped[dict | None] = mapped_column(JSON)
+
+    error_code: Mapped[str | None] = mapped_column(String(100))
+
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    investigation: Mapped["Investigation"] = relationship(
+        back_populates="provider_runs",
     )

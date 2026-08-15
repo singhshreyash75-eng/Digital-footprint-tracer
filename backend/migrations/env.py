@@ -5,7 +5,11 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.db.base import Base
-from app.investigations.models import Investigation, Target  # noqa: F401
+from app.investigations.models import (
+    Investigation,
+    Target,
+    ProviderRun,
+)  # noqa: F401
 
 
 config = context.config

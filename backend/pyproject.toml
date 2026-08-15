@@ -13,6 +13,7 @@ dependencies = [
     "alembic",
     "celery",
     "redis",
+    "psycopg2-binary",
 ]
 
 [build-system]
