@@ -11,6 +11,8 @@ dependencies = [
     "sqlalchemy[asyncio]",
     "asyncpg",
     "alembic",
+    "celery",
+    "redis",
 ]
 
 [build-system]
