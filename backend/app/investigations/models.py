@@ -49,10 +49,7 @@ class Investigation(Base):
     )
 
     status: Mapped[InvestigationStatus] = mapped_column(
-        SAEnum(
-            InvestigationStatus,
-            name="investigation_status",
-        ),
+        SAEnum(InvestigationStatus, name="investigation_status"),
         default=InvestigationStatus.CREATED,
         nullable=False,
     )
@@ -100,10 +97,7 @@ class Target(Base):
     )
 
     type: Mapped[TargetType] = mapped_column(
-        SAEnum(
-            TargetType,
-            name="target_type",
-        ),
+        SAEnum(TargetType, name="target_type"),
         nullable=False,
     )
 
