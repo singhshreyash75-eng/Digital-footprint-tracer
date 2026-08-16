@@ -13,7 +13,6 @@ from app.investigations.models import (
 )
 from app.jobs.celery_app import celery_app
 from app.providers.registry import provider_registry
-from app.providers.username.test_provider import TestUsernameProvider
 
 
 @celery_app.task(name="run_username_provider")
@@ -34,77 +33,180 @@ def run_username_provider(
         if investigation is None:
             raise ValueError("Investigation not found")
 
-        provider = provider_registry.get("test_username")
-
-        if provider is None:
-            provider = TestUsernameProvider()
-            provider_registry.register(provider)
-
-        investigation.status = InvestigationStatus.RUNNING
-
-        provider_run = ProviderRun(
-            investigation_id=investigation_uuid,
-            provider_name=provider.name,
-            status=ProviderRunStatus.RUNNING,
-            started_at=datetime.now(timezone.utc),
+        providers = provider_registry.for_target_type(
+            "USERNAME"
         )
 
-        db.add(provider_run)
-        db.commit()
-        db.refresh(provider_run)
-
-        try:
-            target = SimpleNamespace(
-                id=target_uuid,
-                investigation_id=investigation_uuid,
-                normalized_value=username,
+        if not providers:
+            investigation.status = InvestigationStatus.FAILED
+            investigation.error_message = (
+                "No providers support USERNAME targets."
             )
-
-            result = asyncio.run(provider.execute(target))
-
-            provider_run.status = ProviderRunStatus(result.status.value)
-            provider_run.result = {
-                "observations": [
-                    {
-                        "type": obs.type,
-                        "source": obs.source,
-                        "source_url": obs.source_url,
-                        "data": obs.data,
-                        "confidence": obs.confidence,
-                    }
-                    for obs in result.observations
-                ],
-                "raw_data": result.raw_data,
-            }
-            provider_run.error_code = result.error_code
-            provider_run.error_message = result.error_message
-            provider_run.completed_at = datetime.now(timezone.utc)
-
-            investigation.status = (
-                InvestigationStatus.COMPLETED
-                if result.status.value == "SUCCESS"
-                else InvestigationStatus.PARTIAL
+            investigation.completed_at = datetime.now(
+                timezone.utc
             )
-            investigation.completed_at = datetime.now(timezone.utc)
-
             db.commit()
 
             return {
                 "investigation_id": investigation_id,
                 "target_id": target_id,
-                "provider": provider.name,
-                "status": result.status.value,
-                "provider_run_id": str(provider_run.id),
+                "status": "FAILED",
+                "providers": [],
             }
 
-        except Exception as exc:
-            provider_run.status = ProviderRunStatus.FAILED
-            provider_run.error_message = str(exc)
-            provider_run.completed_at = datetime.now(timezone.utc)
+        investigation.status = InvestigationStatus.RUNNING
+        investigation.started_at = datetime.now(
+            timezone.utc
+        )
 
-            investigation.status = InvestigationStatus.FAILED
-            investigation.error_message = str(exc)
-            investigation.completed_at = datetime.now(timezone.utc)
+        db.commit()
 
+        provider_results: list[dict[str, Any]] = []
+
+        # ---------------------------------------------------------
+        # Run every provider applicable to this target type.
+        # ---------------------------------------------------------
+        for provider in providers:
+            provider_run = ProviderRun(
+                investigation_id=investigation_uuid,
+                provider_name=provider.name,
+                status=ProviderRunStatus.PENDING,
+            )
+
+            db.add(provider_run)
             db.commit()
-            raise
+            db.refresh(provider_run)
+
+            try:
+                provider_run.status = ProviderRunStatus.RUNNING
+                provider_run.started_at = datetime.now(
+                    timezone.utc
+                )
+
+                db.commit()
+
+                target = SimpleNamespace(
+                    id=target_uuid,
+                    investigation_id=investigation_uuid,
+                    normalized_value=username,
+                )
+
+                result = asyncio.run(
+                    provider.execute(target)
+                )
+
+                provider_run.status = ProviderRunStatus(
+                    result.status.value
+                )
+
+                provider_run.result = {
+                    "observations": [
+                        {
+                            "type": observation.type,
+                            "source": observation.source,
+                            "source_url": observation.source_url,
+                            "data": observation.data,
+                            "confidence": observation.confidence,
+                        }
+                        for observation in result.observations
+                    ],
+                    "raw_data": result.raw_data,
+                }
+
+                provider_run.error_code = result.error_code
+                provider_run.error_message = result.error_message
+                provider_run.completed_at = datetime.now(
+                    timezone.utc
+                )
+
+                db.commit()
+
+                provider_results.append(
+                    {
+                        "provider": provider.name,
+                        "status": result.status.value,
+                        "provider_run_id": str(
+                            provider_run.id
+                        ),
+                    }
+                )
+
+            except Exception as exc:
+                provider_run.status = ProviderRunStatus.FAILED
+                provider_run.error_code = "PROVIDER_EXCEPTION"
+                provider_run.error_message = str(exc)
+                provider_run.completed_at = datetime.now(
+                    timezone.utc
+                )
+
+                db.commit()
+
+                provider_results.append(
+                    {
+                        "provider": provider.name,
+                        "status": "FAILED",
+                        "provider_run_id": str(
+                            provider_run.id
+                        ),
+                    }
+                )
+
+        # ---------------------------------------------------------
+        # Aggregate overall investigation status.
+        # ---------------------------------------------------------
+        statuses = [
+            item["status"]
+            for item in provider_results
+        ]
+
+        successful = any(
+            status == ProviderRunStatus.SUCCESS.value
+            for status in statuses
+        )
+
+        not_found_only = (
+            bool(statuses)
+            and all(
+                status
+                == ProviderRunStatus.NOT_FOUND.value
+                for status in statuses
+            )
+        )
+
+        failed = any(
+            status
+            in {
+                ProviderRunStatus.FAILED.value,
+                ProviderRunStatus.TIMEOUT.value,
+                ProviderRunStatus.RATE_LIMITED.value,
+            }
+            for status in statuses
+        )
+
+        if successful and failed:
+            investigation.status = InvestigationStatus.PARTIAL
+
+        elif successful:
+            investigation.status = InvestigationStatus.COMPLETED
+
+        elif not_found_only:
+            investigation.status = InvestigationStatus.PARTIAL
+
+        elif failed:
+            investigation.status = InvestigationStatus.FAILED
+
+        else:
+            investigation.status = InvestigationStatus.PARTIAL
+
+        investigation.completed_at = datetime.now(
+            timezone.utc
+        )
+
+        db.commit()
+
+        return {
+            "investigation_id": investigation_id,
+            "target_id": target_id,
+            "status": investigation.status.value,
+            "providers": provider_results,
+        }

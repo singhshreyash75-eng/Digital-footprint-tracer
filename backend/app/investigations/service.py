@@ -11,12 +11,23 @@ async def create_investigation(
     db: AsyncSession,
     data: InvestigationCreate,
 ) -> Investigation:
+
+    name = data.name.strip()
+
+    if not name:
+        raise ValueError(
+            "Investigation name cannot be empty."
+        )
+
     investigation = Investigation(
-        name=data.name.strip(),
+        name=name,
     )
 
     for target_data in data.targets:
         value = target_data.value.strip()
+
+        if not value:
+            continue
 
         investigation.targets.append(
             Target(
@@ -24,6 +35,11 @@ async def create_investigation(
                 value=value,
                 normalized_value=value.lower(),
             )
+        )
+
+    if not investigation.targets:
+        raise ValueError(
+            "Investigation must contain at least one valid target."
         )
 
     return await repository.create_investigation(
@@ -36,6 +52,7 @@ async def get_investigation(
     db: AsyncSession,
     investigation_id: UUID,
 ) -> Investigation | None:
+
     return await repository.get_investigation(
         db,
         investigation_id,
