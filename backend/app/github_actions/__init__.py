@@ -1,0 +1,1 @@
+"""Authorized GitHub action layer."""

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     github_token: str
     github_api_base_url: str = "https://api.github.com"
+    github_actions_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
