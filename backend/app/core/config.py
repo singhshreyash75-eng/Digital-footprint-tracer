@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str
 
+    github_token: str
+    github_api_base_url: str = "https://api.github.com"
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
