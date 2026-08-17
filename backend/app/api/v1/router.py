@@ -6,6 +6,7 @@ from app.api.v1 import (
     identity,
     investigations,
 )
+from app.api.v1.providers import router as providers_router
 
 
 api_router = APIRouter()
@@ -25,4 +26,8 @@ api_router.include_router(
 
 api_router.include_router(
     github_actions.router
+)
+
+api_router.include_router(
+    providers_router
 )

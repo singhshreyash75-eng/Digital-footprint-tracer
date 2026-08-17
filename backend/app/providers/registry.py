@@ -1,6 +1,7 @@
 from app.investigations.models import TargetType
 from app.providers.base import BaseProvider
 from app.providers.username.github import GitHubProvider
+from app.providers.username.steam import SteamProvider
 
 
 class ProviderRegistry:
@@ -34,3 +35,4 @@ class ProviderRegistry:
 
 provider_registry = ProviderRegistry()
 provider_registry.register(GitHubProvider())
+provider_registry.register(SteamProvider())
