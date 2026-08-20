@@ -13,22 +13,36 @@ router = APIRouter(
     "",
     summary="List registered providers",
     description=(
-        "Returns every provider currently registered in the "
-        "Digital Footprint Tracer provider registry."
+        "Returns all registered providers, their supported target "
+        "types, identifiers, and provider-specific capabilities."
     ),
 )
 async def list_providers() -> dict:
-    return {
-        "success": True,
-        "count": len(provider_registry.all()),
-        "providers": [
+    providers = []
+
+    for provider in provider_registry.all():
+        providers.append(
             {
                 "name": provider.name,
                 "supported_target_types": [
                     target_type.value
                     for target_type in provider.supported_target_types
                 ],
+                "supported_identifiers": getattr(
+                    provider,
+                    "supported_identifiers",
+                    [],
+                ),
+                "capabilities": getattr(
+                    provider,
+                    "capabilities",
+                    {},
+                ),
             }
-            for provider in provider_registry.all()
-        ],
+        )
+
+    return {
+        "success": True,
+        "count": len(providers),
+        "providers": providers,
     }

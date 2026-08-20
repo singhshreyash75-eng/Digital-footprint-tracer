@@ -22,11 +22,27 @@ class SteamProvider(BaseProvider):
     name = "steam"
     supported_target_types = {TargetType.USERNAME}
 
-    def _params(
+    capabilities = {
+        "discover": True,
+        "read": True,
+        "write": False,
+        "create": False,
+        "history": True,
+        "enrich": True,
+    }
+
+    supported_identifiers = [
+        "steamid64",
+        "profile_url",
+        "vanity_url",
+        "vanity_name",
+    ]
+
+    def _base_params(
         self,
         extra: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        params = {
+        params: dict[str, Any] = {
             "key": settings.steam_api_key,
             "format": "json",
         }
@@ -36,7 +52,7 @@ class SteamProvider(BaseProvider):
 
         return params
 
-    async def _get(
+    async def _request(
         self,
         client: httpx.AsyncClient,
         path: str,
@@ -46,24 +62,16 @@ class SteamProvider(BaseProvider):
 
         response = await client.get(
             path,
-            params=self._params(params),
+            params=self._base_params(params),
         )
 
         if response.status_code == 404:
             return None
 
-        if response.status_code == 403:
-            raise httpx.HTTPStatusError(
-                "Steam API returned 403",
-                request=response.request,
-                response=response,
-            )
-
         response.raise_for_status()
-
         return response.json()
 
-    async def _resolve_target(
+    async def _resolve_identifier(
         self,
         client: httpx.AsyncClient,
         value: str,
@@ -71,51 +79,142 @@ class SteamProvider(BaseProvider):
 
         value = value.strip()
 
-        # Direct SteamID64.
         if STEAM_ID64_RE.fullmatch(value):
             return value, "STEAMID64"
 
-        # Full Steam profile URL:
-        # https://steamcommunity.com/id/foo
-        # https://steamcommunity.com/profiles/7656...
-        if value.startswith("https://steamcommunity.com/"):
-            value = value.rstrip("/")
-
-            profiles_prefix = (
-                "https://steamcommunity.com/profiles/"
+        if value.startswith("http://"):
+            value = value.replace(
+                "http://",
+                "https://",
+                1,
             )
 
-            vanity_prefix = (
-                "https://steamcommunity.com/id/"
+        profile_prefix = "https://steamcommunity.com/profiles/"
+        vanity_prefix = "https://steamcommunity.com/id/"
+
+        if value.startswith(profile_prefix):
+            candidate = value.rstrip("/").removeprefix(
+                profile_prefix
             )
 
-            if value.startswith(profiles_prefix):
-                candidate = value[len(profiles_prefix):]
+            if STEAM_ID64_RE.fullmatch(candidate):
+                return candidate, "PROFILE_URL"
 
-                if STEAM_ID64_RE.fullmatch(candidate):
-                    return candidate, "PROFILE_URL"
+            return None, "INVALID_PROFILE_URL"
 
-            if value.startswith(vanity_prefix):
-                value = value[len(vanity_prefix):]
+        if value.startswith(vanity_prefix):
+            vanity = value.rstrip("/").removeprefix(
+                vanity_prefix
+            )
+        else:
+            vanity = value.rstrip("/")
 
-        # Treat remaining input as a vanity URL slug.
-        result = await self._get(
+        if not vanity:
+            return None, "EMPTY_IDENTIFIER"
+
+        response = await self._request(
             client,
             "/ISteamUser/ResolveVanityURL/v1/",
             params={
-                "vanityurl": value,
+                "vanityurl": vanity,
                 "url_type": 1,
             },
         )
 
         steamid = (
-            (result or {}).get("response") or {}
+            (response or {}).get("response") or {}
         ).get("steamid")
 
         if steamid:
-            return steamid, "VANITY_URL"
+            return steamid, "VANITY"
 
         return None, "UNRESOLVED"
+
+    @staticmethod
+    def _safe_int(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _game_record(game: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "appid": game.get("appid"),
+            "name": game.get("name"),
+            "playtime_forever": game.get(
+                "playtime_forever"
+            ),
+            "playtime_2weeks": game.get(
+                "playtime_2weeks"
+            ),
+            "last_played": game.get(
+                "rtime_last_played"
+            ),
+            "img_icon_url": game.get(
+                "img_icon_url"
+            ),
+        }
+
+    @classmethod
+    def _derive_metrics(
+        cls,
+        owned_games: list[dict[str, Any]],
+        recent_games: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+
+        total_forever_minutes = sum(
+            cls._safe_int(
+                game.get("playtime_forever")
+            )
+            for game in owned_games
+        )
+
+        recent_minutes = sum(
+            cls._safe_int(
+                game.get("playtime_2weeks")
+            )
+            for game in recent_games
+        )
+
+        top_games = sorted(
+            owned_games,
+            key=lambda game: cls._safe_int(
+                game.get("playtime_forever")
+            ),
+            reverse=True,
+        )[:10]
+
+        return {
+            "owned_game_count": len(
+                owned_games
+            ),
+            "recent_game_count": len(
+                recent_games
+            ),
+            "total_playtime_minutes": (
+                total_forever_minutes
+            ),
+            "total_playtime_hours": round(
+                total_forever_minutes / 60,
+                2,
+            ),
+            "recent_playtime_minutes": recent_minutes,
+            "recent_playtime_hours": round(
+                recent_minutes / 60,
+                2,
+            ),
+            "top_played_games": [
+                {
+                    "appid": game.get("appid"),
+                    "name": game.get("name"),
+                    "playtime_forever": game.get(
+                        "playtime_forever"
+                    ),
+                }
+                for game in top_games
+            ],
+        }
 
     async def execute(
         self,
@@ -132,11 +231,8 @@ class SteamProvider(BaseProvider):
         ) as client:
 
             try:
-                # -------------------------------------------------
-                # 1. Resolve username / vanity URL → SteamID64
-                # -------------------------------------------------
                 steamid, resolution_type = (
-                    await self._resolve_target(
+                    await self._resolve_identifier(
                         client,
                         raw_value,
                     )
@@ -148,15 +244,15 @@ class SteamProvider(BaseProvider):
                         status=ProviderStatus.NOT_FOUND,
                         error_code="STEAM_PROFILE_NOT_RESOLVED",
                         error_message=(
-                            "Input could not be resolved "
-                            "to a SteamID."
+                            "The supplied Steam identifier "
+                            "could not be resolved."
                         ),
                     )
 
-                # -------------------------------------------------
-                # 2. Profile
-                # -------------------------------------------------
-                summary_response = await self._get(
+                # -----------------------------
+                # Core profile
+                # -----------------------------
+                profile_response = await self._request(
                     client,
                     "/ISteamUser/GetPlayerSummaries/v2/",
                     params={
@@ -165,7 +261,9 @@ class SteamProvider(BaseProvider):
                 )
 
                 players = (
-                    (summary_response or {}).get("response") or {}
+                    (profile_response or {}).get(
+                        "response"
+                    ) or {}
                 ).get("players") or []
 
                 if not players:
@@ -174,64 +272,207 @@ class SteamProvider(BaseProvider):
                         status=ProviderStatus.NOT_FOUND,
                         error_code="STEAM_PROFILE_NOT_FOUND",
                         error_message=(
-                            "Steam profile was not returned."
+                            "Steam did not return a "
+                            "profile for this identifier."
                         ),
                     )
 
                 profile = players[0]
 
-                # -------------------------------------------------
-                # 3. Enrichment endpoints
-                # -------------------------------------------------
-                owned_response = await self._get(
-                    client,
-                    "/IPlayerService/GetOwnedGames/v1/",
-                    params={
-                        "steamid": steamid,
-                        "include_appinfo": "true",
-                        "include_played_free_games": "true",
-                    },
-                )
-
-                recent_response = await self._get(
-                    client,
-                    "/IPlayerService/GetRecentlyPlayedGames/v1/",
-                    params={
-                        "steamid": steamid,
-                    },
-                )
-
-                level_response = await self._get(
-                    client,
-                    "/IPlayerService/GetSteamLevel/v1/",
-                    params={
-                        "steamid": steamid,
-                    },
-                )
-
-                badges_response = await self._get(
-                    client,
-                    "/IPlayerService/GetBadges/v1/",
-                    params={
-                        "steamid": steamid,
-                    },
-                )
-
-                bans_response = await self._get(
-                    client,
-                    "/ISteamUser/GetPlayerBans/v1/",
-                    params={
-                        "steamids": steamid,
-                    },
-                )
-
                 observations: list[
                     ProviderObservation
                 ] = []
 
-                # -------------------------------------------------
-                # PROFILE
-                # -------------------------------------------------
+                endpoint_errors: list[
+                    dict[str, Any]
+                ] = []
+
+                # -----------------------------
+                # Owned games
+                # -----------------------------
+                owned_response = None
+
+                try:
+                    owned_response = await self._request(
+                        client,
+                        "/IPlayerService/GetOwnedGames/v1/",
+                        params={
+                            "steamid": steamid,
+                            "include_appinfo": "true",
+                            "include_played_free_games": "true",
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    endpoint_errors.append(
+                        {
+                            "capability": "owned_games",
+                            "error": str(exc),
+                        }
+                    )
+
+                owned_data = (
+                    (owned_response or {}).get(
+                        "response"
+                    ) or {}
+                )
+
+                owned_games = (
+                    owned_data.get("games") or []
+                )
+
+                # -----------------------------
+                # Recently played
+                # -----------------------------
+                recent_response = None
+
+                try:
+                    recent_response = await self._request(
+                        client,
+                        "/IPlayerService/GetRecentlyPlayedGames/v1/",
+                        params={
+                            "steamid": steamid,
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    endpoint_errors.append(
+                        {
+                            "capability": "recently_played",
+                            "error": str(exc),
+                        }
+                    )
+
+                recent_data = (
+                    (recent_response or {}).get(
+                        "response"
+                    ) or {}
+                )
+
+                recent_games = (
+                    recent_data.get("games") or []
+                )
+
+                # -----------------------------
+                # Level
+                # -----------------------------
+                level_response = None
+
+                try:
+                    level_response = await self._request(
+                        client,
+                        "/IPlayerService/GetSteamLevel/v1/",
+                        params={
+                            "steamid": steamid,
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    endpoint_errors.append(
+                        {
+                            "capability": "steam_level",
+                            "error": str(exc),
+                        }
+                    )
+
+                level_data = (
+                    (level_response or {}).get(
+                        "response"
+                    ) or {}
+                )
+
+                # -----------------------------
+                # Badges
+                # -----------------------------
+                badges_response = None
+
+                try:
+                    badges_response = await self._request(
+                        client,
+                        "/IPlayerService/GetBadges/v1/",
+                        params={
+                            "steamid": steamid,
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    endpoint_errors.append(
+                        {
+                            "capability": "badges",
+                            "error": str(exc),
+                        }
+                    )
+
+                badges_data = (
+                    (badges_response or {}).get(
+                        "response"
+                    ) or {}
+                )
+
+                # -----------------------------
+                # Ban status
+                # -----------------------------
+                bans_response = None
+
+                try:
+                    bans_response = await self._request(
+                        client,
+                        "/ISteamUser/GetPlayerBans/v1/",
+                        params={
+                            "steamids": steamid,
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    endpoint_errors.append(
+                        {
+                            "capability": "ban_status",
+                            "error": str(exc),
+                        }
+                    )
+
+                ban_players = (
+                    (bans_response or {}).get(
+                        "players"
+                    ) or []
+                )
+
+                ban_data = (
+                    ban_players[0]
+                    if ban_players
+                    else {}
+                )
+
+                # -----------------------------
+                # Friends
+                # -----------------------------
+                friends_response = None
+
+                try:
+                    friends_response = await self._request(
+                        client,
+                        "/ISteamUser/GetFriendList/v1/",
+                        params={
+                            "steamid": steamid,
+                            "relationship": "friend",
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    endpoint_errors.append(
+                        {
+                            "capability": "friends",
+                            "error": str(exc),
+                        }
+                    )
+
+                friends_data = (
+                    (friends_response or {}).get(
+                        "friendslist"
+                    ) or {}
+                )
+
+                friends = friends_data.get(
+                    "friends"
+                ) or []
+
+                # -----------------------------
+                # Observations
+                # -----------------------------
                 observations.append(
                     ProviderObservation(
                         type="STEAM_PROFILE",
@@ -287,17 +528,6 @@ class SteamProvider(BaseProvider):
                     )
                 )
 
-                # -------------------------------------------------
-                # OWNED GAMES
-                # -------------------------------------------------
-                owned_data = (
-                    owned_response or {}
-                ).get("response") or {}
-
-                games = owned_data.get(
-                    "games"
-                ) or []
-
                 observations.append(
                     ProviderObservation(
                         type="STEAM_OWNED_GAMES",
@@ -309,43 +539,18 @@ class SteamProvider(BaseProvider):
                         data={
                             "game_count": owned_data.get(
                                 "game_count",
-                                len(games),
+                                len(owned_games),
                             ),
                             "games": [
-                                {
-                                    "appid": game.get(
-                                        "appid"
-                                    ),
-                                    "name": game.get(
-                                        "name"
-                                    ),
-                                    "playtime_forever": game.get(
-                                        "playtime_forever"
-                                    ),
-                                    "playtime_2weeks": game.get(
-                                        "playtime_2weeks"
-                                    ),
-                                    "img_icon_url": game.get(
-                                        "img_icon_url"
-                                    ),
-                                }
-                                for game in games
+                                self._game_record(
+                                    game
+                                )
+                                for game in owned_games
                             ],
                         },
                         confidence="HIGH",
                     )
                 )
-
-                # -------------------------------------------------
-                # RECENTLY PLAYED
-                # -------------------------------------------------
-                recent_data = (
-                    recent_response or {}
-                ).get("response") or {}
-
-                recent_games = recent_data.get(
-                    "games"
-                ) or []
 
                 observations.append(
                     ProviderObservation(
@@ -361,33 +566,15 @@ class SteamProvider(BaseProvider):
                                 len(recent_games),
                             ),
                             "games": [
-                                {
-                                    "appid": game.get(
-                                        "appid"
-                                    ),
-                                    "name": game.get(
-                                        "name"
-                                    ),
-                                    "playtime_2weeks": game.get(
-                                        "playtime_2weeks"
-                                    ),
-                                    "playtime_forever": game.get(
-                                        "playtime_forever"
-                                    ),
-                                }
+                                self._game_record(
+                                    game
+                                )
                                 for game in recent_games
                             ],
                         },
                         confidence="HIGH",
                     )
                 )
-
-                # -------------------------------------------------
-                # STEAM LEVEL
-                # -------------------------------------------------
-                level_data = (
-                    level_response or {}
-                ).get("response") or {}
 
                 observations.append(
                     ProviderObservation(
@@ -406,13 +593,6 @@ class SteamProvider(BaseProvider):
                     )
                 )
 
-                # -------------------------------------------------
-                # BADGES
-                # -------------------------------------------------
-                badge_data = (
-                    badges_response or {}
-                ).get("response") or {}
-
                 observations.append(
                     ProviderObservation(
                         type="STEAM_BADGES",
@@ -422,32 +602,19 @@ class SteamProvider(BaseProvider):
                             f"profiles/{steamid}/badges/"
                         ),
                         data={
-                            "badge_count": badge_data.get(
+                            "badge_count": badges_data.get(
                                 "badge_count"
                             ),
-                            "badges": badge_data.get(
+                            "player_xp": badges_data.get(
+                                "player_xp"
+                            ),
+                            "badges": badges_data.get(
                                 "badges",
                                 [],
                             ),
                         },
                         confidence="HIGH",
                     )
-                )
-
-                # -------------------------------------------------
-                # BAN STATUS
-                # -------------------------------------------------
-                ban_players = (
-                    (bans_response or {}).get(
-                        "players"
-                    )
-                    or []
-                )
-
-                ban_data = (
-                    ban_players[0]
-                    if ban_players
-                    else {}
                 )
 
                 observations.append(
@@ -482,9 +649,53 @@ class SteamProvider(BaseProvider):
                     )
                 )
 
+                observations.append(
+                    ProviderObservation(
+                        type="STEAM_FRIENDS",
+                        source="steam",
+                        source_url=(
+                            f"https://steamcommunity.com/"
+                            f"profiles/{steamid}/friends/"
+                        ),
+                        data={
+                            "friend_count": len(
+                                friends
+                            ),
+                            "friends": friends,
+                        },
+                        confidence="HIGH",
+                    )
+                )
+
+                derived_metrics = (
+                    self._derive_metrics(
+                        owned_games,
+                        recent_games,
+                    )
+                )
+
+                observations.append(
+                    ProviderObservation(
+                        type="STEAM_DERIVED_METRICS",
+                        source="steam",
+                        source_url=(
+                            f"https://steamcommunity.com/"
+                            f"profiles/{steamid}/"
+                        ),
+                        data=derived_metrics,
+                        confidence="DERIVED",
+                    )
+                )
+
+                status = (
+                    ProviderStatus.SUCCESS
+                    if not endpoint_errors
+                    else ProviderStatus.SUCCESS
+                )
+
                 return ProviderResult(
                     provider_name=self.name,
-                    status=ProviderStatus.SUCCESS,
+                    status=status,
                     observations=observations,
                     raw_data={
                         "resolution": {
@@ -498,6 +709,8 @@ class SteamProvider(BaseProvider):
                         "steam_level": level_response,
                         "badges": badges_response,
                         "ban_status": bans_response,
+                        "friends": friends_response,
+                        "endpoint_errors": endpoint_errors,
                     },
                 )
 
@@ -518,18 +731,6 @@ class SteamProvider(BaseProvider):
                     else None
                 )
 
-                if status_code == 403:
-                    return ProviderResult(
-                        provider_name=self.name,
-                        status=ProviderStatus.RATE_LIMITED,
-                        error_code="STEAM_403",
-                        error_message=(
-                            "Steam rejected the request. "
-                            "This may indicate key restrictions, "
-                            "permissions, or rate limiting."
-                        ),
-                    )
-
                 if status_code == 429:
                     return ProviderResult(
                         provider_name=self.name,
@@ -537,6 +738,18 @@ class SteamProvider(BaseProvider):
                         error_code="STEAM_RATE_LIMITED",
                         error_message=(
                             "Steam API rate limit was reached."
+                        ),
+                    )
+
+                if status_code == 403:
+                    return ProviderResult(
+                        provider_name=self.name,
+                        status=ProviderStatus.RATE_LIMITED,
+                        error_code="STEAM_403",
+                        error_message=(
+                            "Steam rejected the request. "
+                            "This may indicate API restrictions "
+                            "or rate limiting."
                         ),
                     )
 
