@@ -2,7 +2,15 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, JSON, String, Text, func
+from sqlalchemy import (
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    JSON,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,10 +55,16 @@ class Investigation(Base):
         default=uuid4,
     )
 
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
 
     status: Mapped[InvestigationStatus] = mapped_column(
-        SAEnum(InvestigationStatus, name="investigation_status"),
+        SAEnum(
+            InvestigationStatus,
+            name="investigation_status",
+        ),
         default=InvestigationStatus.CREATED,
         nullable=False,
     )
@@ -63,7 +77,9 @@ class Investigation(Base):
         DateTime(timezone=True)
     )
 
-    error_message: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(
+        Text
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -93,7 +109,10 @@ class Target(Base):
 
     investigation_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("investigations.id", ondelete="CASCADE"),
+        ForeignKey(
+            "investigations.id",
+            ondelete="CASCADE",
+        ),
         nullable=False,
     )
 
@@ -102,7 +121,10 @@ class Target(Base):
         nullable=False,
     )
 
-    value: Mapped[str] = mapped_column(String(500), nullable=False)
+    value: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+    )
 
     normalized_value: Mapped[str] = mapped_column(
         String(500),
@@ -120,6 +142,71 @@ class Target(Base):
     )
 
 
+class Subject(Base):
+    """
+    A concrete provider identity selected by the investigator.
+
+    Target:
+        raw search/input value.
+
+    Subject:
+        the specific identity the investigator chose to investigate.
+    """
+
+    __tablename__ = "subjects"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+
+    provider: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+
+    provider_user_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+
+    username: Mapped[str | None] = mapped_column(
+        String(255),
+        index=True,
+    )
+
+    display_name: Mapped[str | None] = mapped_column(
+        String(255),
+    )
+
+    profile_url: Mapped[str | None] = mapped_column(
+        String(1000),
+    )
+
+    confidence: Mapped[float | None]
+
+    identifiers: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+
+    capabilities: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 class ProviderRun(Base):
     __tablename__ = "provider_runs"
 
@@ -131,7 +218,10 @@ class ProviderRun(Base):
 
     investigation_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("investigations.id", ondelete="CASCADE"),
+        ForeignKey(
+            "investigations.id",
+            ondelete="CASCADE",
+        ),
         nullable=False,
     )
 
@@ -141,16 +231,25 @@ class ProviderRun(Base):
     )
 
     status: Mapped[ProviderRunStatus] = mapped_column(
-        SAEnum(ProviderRunStatus, name="provider_run_status"),
+        SAEnum(
+            ProviderRunStatus,
+            name="provider_run_status",
+        ),
         default=ProviderRunStatus.PENDING,
         nullable=False,
     )
 
-    result: Mapped[dict | None] = mapped_column(JSON)
+    result: Mapped[dict | None] = mapped_column(
+        JSON
+    )
 
-    error_code: Mapped[str | None] = mapped_column(String(100))
+    error_code: Mapped[str | None] = mapped_column(
+        String(100)
+    )
 
-    error_message: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(
+        Text
+    )
 
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)

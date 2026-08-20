@@ -6,7 +6,9 @@ from app.api.v1 import (
     identity,
     investigations,
 )
-from app.api.v1.providers import router as providers_router
+from app.api.v1.providers import (
+    router as providers_router,
+)
 
 
 api_router = APIRouter()

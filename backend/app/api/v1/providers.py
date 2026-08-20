@@ -13,7 +13,7 @@ router = APIRouter(
     "",
     summary="List registered providers",
     description=(
-        "Returns all registered providers, their supported target "
+        "Returns all registered providers, supported target "
         "types, identifiers, and provider-specific capabilities."
     ),
 )
@@ -26,17 +26,14 @@ async def list_providers() -> dict:
                 "name": provider.name,
                 "supported_target_types": [
                     target_type.value
-                    for target_type in provider.supported_target_types
+                    for target_type
+                    in provider.supported_target_types
                 ],
-                "supported_identifiers": getattr(
-                    provider,
-                    "supported_identifiers",
-                    [],
+                "supported_identifiers": (
+                    provider.get_supported_identifiers()
                 ),
-                "capabilities": getattr(
-                    provider,
-                    "capabilities",
-                    {},
+                "capabilities": (
+                    provider.get_capabilities()
                 ),
             }
         )
