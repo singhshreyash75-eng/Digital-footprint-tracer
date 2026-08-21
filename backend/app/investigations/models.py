@@ -117,7 +117,10 @@ class Target(Base):
     )
 
     type: Mapped[TargetType] = mapped_column(
-        SAEnum(TargetType, name="target_type"),
+        SAEnum(
+            TargetType,
+            name="target_type",
+        ),
         nullable=False,
     )
 
@@ -143,16 +146,6 @@ class Target(Base):
 
 
 class Subject(Base):
-    """
-    A concrete provider identity selected by the investigator.
-
-    Target:
-        raw search/input value.
-
-    Subject:
-        the specific identity the investigator chose to investigate.
-    """
-
     __tablename__ = "subjects"
 
     id: Mapped[UUID] = mapped_column(
@@ -206,6 +199,11 @@ class Subject(Base):
         nullable=False,
     )
 
+    provider_runs: Mapped[list["ProviderRun"]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+    )
+
 
 class ProviderRun(Base):
     __tablename__ = "provider_runs"
@@ -216,13 +214,23 @@ class ProviderRun(Base):
         default=uuid4,
     )
 
-    investigation_id: Mapped[UUID] = mapped_column(
+    investigation_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey(
             "investigations.id",
             ondelete="CASCADE",
         ),
-        nullable=False,
+        nullable=True,
+    )
+
+    subject_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey(
+            "subjects.id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
     )
 
     provider_name: Mapped[str] = mapped_column(
@@ -259,6 +267,10 @@ class ProviderRun(Base):
         DateTime(timezone=True)
     )
 
-    investigation: Mapped["Investigation"] = relationship(
+    investigation: Mapped["Investigation | None"] = relationship(
+        back_populates="provider_runs",
+    )
+
+    subject: Mapped["Subject | None"] = relationship(
         back_populates="provider_runs",
     )

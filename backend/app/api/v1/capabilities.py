@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +17,11 @@ from app.capabilities.schemas import (
     CapabilityRequest,
 )
 from app.db.session import get_db
-from app.investigations.models import Subject
+from app.investigations.models import (
+    ProviderRun,
+    ProviderRunStatus,
+    Subject,
+)
 from app.providers.registry import provider_registry
 
 
@@ -65,10 +70,15 @@ async def plan_capabilities(
 
     requested = [
         capability.strip()
-        for capability
-        in request.capabilities
+        for capability in request.capabilities
         if capability.strip()
     ]
+
+    if not requested:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one capability is required.",
+        )
 
     planner = CapabilityPlanner()
 
@@ -122,10 +132,15 @@ async def execute_capabilities(
 
     requested = [
         capability.strip()
-        for capability
-        in request.capabilities
+        for capability in request.capabilities
         if capability.strip()
     ]
+
+    if not requested:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one capability is required.",
+        )
 
     planner = CapabilityPlanner()
 
@@ -139,28 +154,116 @@ async def execute_capabilities(
         raise HTTPException(
             status_code=400,
             detail={
-                "message": "One or more capabilities are unsupported.",
+                "message": (
+                    "One or more capabilities "
+                    "are unsupported."
+                ),
                 "plan": plan,
             },
         )
 
     executor = CapabilityExecutor()
 
-    result = await executor.execute(
+    started_at = datetime.now(timezone.utc)
+
+    execution_result = await executor.execute(
         subject=subject,
         provider=provider,
         capabilities=requested,
     )
 
+    completed_at = datetime.now(timezone.utc)
+
+    # ---------------------------------------------------------
+    # Persist evidence against the selected Subject.
+    # ---------------------------------------------------------
+    status_value = execution_result.get(
+        "provider_result_status",
+        "FAILED",
+    )
+
+    try:
+        provider_status = ProviderRunStatus(
+            status_value
+        )
+    except ValueError:
+        provider_status = (
+            ProviderRunStatus.FAILED
+        )
+
+    errors = execution_result.get(
+        "errors",
+        [],
+    )
+
+    provider_run = ProviderRun(
+        investigation_id=None,
+        subject_id=subject.id,
+        provider_name=provider.name,
+        status=provider_status,
+        result={
+            "requested_capabilities": requested,
+            "executed_capabilities": (
+                execution_result.get(
+                    "executed_capabilities",
+                    [],
+                )
+            ),
+            "observations": (
+                execution_result.get(
+                    "observations",
+                    [],
+                )
+            ),
+            "errors": errors,
+        },
+        error_code=(
+            errors[0].get("code")
+            if errors
+            else None
+        ),
+        error_message=(
+            errors[0].get("message")
+            if errors
+            else None
+        ),
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+
+    db.add(provider_run)
+
+    try:
+        await db.commit()
+
+    except Exception as exc:
+        await db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Failed to persist capability evidence: "
+                f"{exc}"
+            ),
+        ) from exc
+
     return CapabilityExecutionResponse(
         subject_id=subject.id,
         provider=subject.provider,
         requested_capabilities=(
-            result["requested_capabilities"]
+            execution_result[
+                "requested_capabilities"
+            ]
         ),
         executed_capabilities=(
-            result["executed_capabilities"]
+            execution_result[
+                "executed_capabilities"
+            ]
         ),
-        observations=result["observations"],
-        errors=result["errors"],
+        observations=execution_result[
+            "observations"
+        ],
+        errors=execution_result[
+            "errors"
+        ],
     )
