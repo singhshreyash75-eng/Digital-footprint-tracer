@@ -4,19 +4,53 @@ from pydantic import BaseModel, Field
 
 
 class IdentityCandidate(BaseModel):
+    """
+    Normalized identity candidate returned by provider-specific
+    identity resolvers.
+
+    This preserves rich discovery metadata while also providing
+    the common provider identity fields required by the Subject
+    architecture.
+    """
+
     provider: str
     provider_user_id: str
 
     username: str | None = None
     display_name: str | None = None
     profile_url: str | None = None
+    avatar_url: str | None = None
 
-    confidence: float = Field(
+    # Discovery relevance / confidence
+    score: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
     )
 
+    confidence_percent: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+    )
+
+    match_type: str = "SEARCH_RELEVANCE"
+
+    reasons: list[str] = Field(
+        default_factory=list
+    )
+
+    # Public profile enrichment
+    public_repos: int | None = None
+    followers: int | None = None
+    following: int | None = None
+
+    bio: str | None = None
+    location: str | None = None
+    company: str | None = None
+    blog: str | None = None
+
+    # Normalized identifiers used later by Subject selection.
     identifiers: dict[str, str] = Field(
         default_factory=dict
     )

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     capabilities,
+    discovery,
     github_actions,
     health,
     identity,
@@ -37,4 +38,8 @@ api_router.include_router(
 
 api_router.include_router(
     capabilities.router
+)
+
+api_router.include_router(
+    discovery.router
 )
