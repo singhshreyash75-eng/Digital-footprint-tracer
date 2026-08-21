@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.identity.resolver import GitHubIdentityResolver
+from app.discovery.engine import DiscoveryEngine
 from app.identity.schemas import (
     IdentitySearchRequest,
     IdentitySearchResponse,
@@ -40,12 +40,79 @@ async def search_identity(
             detail="Search query cannot be empty.",
         )
 
-    try:
-        resolver = GitHubIdentityResolver()
+    engine = DiscoveryEngine()
 
-        candidates = await resolver.search(
+    try:
+        discovered = await engine.search(
             query
         )
+
+        # Identity search remains compatible with
+        # the existing IdentityCandidate response model.
+        candidates = [
+            # IdentityCandidate-compatible data
+            # is constructed explicitly below.
+            candidate
+            for candidate in []
+        ]
+
+        # Convert normalized discovery candidates
+        # back into the richer identity response.
+        from app.identity.schemas import (
+            IdentityCandidate,
+        )
+
+        candidates = [
+            IdentityCandidate(
+                provider=candidate.provider,
+                provider_user_id=(
+                    candidate.provider_user_id
+                ),
+                username=candidate.username,
+                display_name=(
+                    candidate.display_name
+                ),
+                profile_url=candidate.profile_url,
+                avatar_url=candidate.avatar_url,
+                score=candidate.confidence,
+                confidence_percent=round(
+                    candidate.confidence * 100
+                ),
+                match_type=candidate.match_type,
+                reasons=list(candidate.reasons),
+                identifiers=dict(
+                    candidate.identifiers
+                ),
+                public_repos=(
+                    candidate.metadata.get(
+                        "public_repos"
+                    )
+                ),
+                followers=(
+                    candidate.metadata.get(
+                        "followers"
+                    )
+                ),
+                following=(
+                    candidate.metadata.get(
+                        "following"
+                    )
+                ),
+                bio=candidate.metadata.get(
+                    "bio"
+                ),
+                location=candidate.metadata.get(
+                    "location"
+                ),
+                company=candidate.metadata.get(
+                    "company"
+                ),
+                blog=candidate.metadata.get(
+                    "blog"
+                ),
+            )
+            for candidate in discovered
+        ]
 
         return IdentitySearchResponse(
             query=query,
@@ -55,9 +122,7 @@ async def search_identity(
     except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail=(
-                f"GitHub identity search failed: {exc}"
-            ),
+            detail=f"Identity discovery failed: {exc}",
         ) from exc
 
 
@@ -70,8 +135,17 @@ async def select_identity(
     db: AsyncSession = Depends(get_db),
 ) -> IdentitySelectResponse:
 
+    query = request.query.strip()
     provider_name = request.provider.strip()
-    username = request.username.strip()
+    provider_user_id = (
+        request.provider_user_id.strip()
+    )
+
+    if not query:
+        raise HTTPException(
+            status_code=400,
+            detail="Selection query cannot be empty.",
+        )
 
     if not provider_name:
         raise HTTPException(
@@ -79,10 +153,10 @@ async def select_identity(
             detail="Provider cannot be empty.",
         )
 
-    if not username:
+    if not provider_user_id:
         raise HTTPException(
             status_code=400,
-            detail="Username cannot be empty.",
+            detail="Provider user ID cannot be empty.",
         )
 
     provider = provider_registry.get(
@@ -98,19 +172,67 @@ async def select_identity(
             ),
         )
 
-    provider_user_id = (
-        request.provider_user_id
-        or username
+    # ---------------------------------------------------------
+    # Re-run discovery and verify the selected identity.
+    #
+    # This prevents the client from inventing/changing:
+    # username, display name, profile URL, confidence, etc.
+    # ---------------------------------------------------------
+    engine = DiscoveryEngine()
+
+    try:
+        candidates = await engine.search(
+            query
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Unable to validate selected identity: "
+                f"{exc}"
+            ),
+        ) from exc
+
+    selected = next(
+        (
+            candidate
+            for candidate in candidates
+            if (
+                candidate.provider
+                == provider_name
+                and candidate.provider_user_id
+                == provider_user_id
+            )
+        ),
+        None,
     )
 
+    if selected is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "The selected identity was not found "
+                "in the discovery results."
+            ),
+        )
+
+    # ---------------------------------------------------------
+    # Build Subject exclusively from the verified candidate.
+    # ---------------------------------------------------------
     subject = Subject(
-        provider=provider_name,
-        provider_user_id=provider_user_id,
-        username=username,
-        display_name=request.display_name,
-        profile_url=request.profile_url,
-        confidence=request.confidence,
-        identifiers=request.identifiers,
+        provider=selected.provider,
+        provider_user_id=(
+            selected.provider_user_id
+        ),
+        username=selected.username,
+        display_name=(
+            selected.display_name
+        ),
+        profile_url=selected.profile_url,
+        confidence=selected.confidence,
+        identifiers=dict(
+            selected.identifiers
+        ),
         capabilities=provider.get_capabilities(),
     )
 
@@ -119,12 +241,17 @@ async def select_identity(
     try:
         await db.commit()
         await db.refresh(subject)
-    except Exception:
+
+    except Exception as exc:
         await db.rollback()
+
         raise HTTPException(
             status_code=500,
-            detail="Failed to persist selected identity.",
-        )
+            detail=(
+                f"Failed to persist selected identity: "
+                f"{exc}"
+            ),
+        ) from exc
 
     return IdentitySelectResponse(
         subject_id=subject.id,
@@ -212,9 +339,9 @@ async def get_subject_capabilities(
             ),
         )
 
-    # Read live provider capabilities instead of
-    # trusting stale metadata stored on the Subject.
+    # Refresh capability metadata from the provider.
     capabilities = provider.get_capabilities()
+
     supported_identifiers = (
         provider.get_supported_identifiers()
     )
