@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    capabilities,
     github_actions,
     health,
     identity,
@@ -32,4 +33,8 @@ api_router.include_router(
 
 api_router.include_router(
     providers_router
+)
+
+api_router.include_router(
+    capabilities.router
 )

@@ -9,9 +9,14 @@ class BaseProvider(ABC):
     name: str
     supported_target_types: set[TargetType]
 
-    # Every provider exposes the same metadata shape,
-    # but the values are provider-specific.
+    # Backward-compatible coarse capability metadata.
     capabilities: dict[str, bool] = {}
+
+    # Fine-grained executable capabilities.
+    capability_definitions: dict[
+        str,
+        dict[str, Any],
+    ] = {}
 
     supported_identifiers: list[str] = []
 
@@ -24,8 +29,21 @@ class BaseProvider(ABC):
         """Execute the provider against a target."""
         raise NotImplementedError
 
-    def get_capabilities(self) -> dict[str, bool]:
+    def get_capabilities(
+        self,
+    ) -> dict[str, bool]:
         return dict(self.capabilities)
 
-    def get_supported_identifiers(self) -> list[str]:
-        return list(self.supported_identifiers)
+    def get_capability_definitions(
+        self,
+    ) -> dict[str, dict[str, Any]]:
+        return dict(
+            self.capability_definitions
+        )
+
+    def get_supported_identifiers(
+        self,
+    ) -> list[str]:
+        return list(
+            self.supported_identifiers
+        )
