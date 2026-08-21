@@ -7,6 +7,7 @@ from app.api.v1 import (
     health,
     identity,
     investigations,
+    subjects,
 )
 from app.api.v1.providers import (
     router as providers_router,
@@ -42,4 +43,8 @@ api_router.include_router(
 
 api_router.include_router(
     discovery.router
+)
+
+api_router.include_router(
+    subjects.router
 )
