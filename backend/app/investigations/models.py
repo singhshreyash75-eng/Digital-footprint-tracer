@@ -70,15 +70,15 @@ class Investigation(Base):
     )
 
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        DateTime(timezone=True),
     )
 
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        DateTime(timezone=True),
     )
 
     error_message: Mapped[str | None] = mapped_column(
-        Text
+        Text,
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -146,6 +146,14 @@ class Target(Base):
 
 
 class Subject(Base):
+    """
+    Logical person/entity being investigated.
+
+    A Subject can now contain multiple provider-specific
+    identities, allowing one selected person to be represented
+    across GitHub, Steam, Stack Exchange, and future providers.
+    """
+
     __tablename__ = "subjects"
 
     id: Mapped[UUID] = mapped_column(
@@ -154,6 +162,13 @@ class Subject(Base):
         default=uuid4,
     )
 
+    # ------------------------------------------------------------------
+    # Backward-compatible primary identity fields.
+    #
+    # These remain for compatibility with the current Subject and
+    # capability pipeline. SubjectIdentity becomes the canonical
+    # multi-provider identity layer.
+    # ------------------------------------------------------------------
     provider: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
@@ -199,9 +214,90 @@ class Subject(Base):
         nullable=False,
     )
 
+    identities: Mapped[list["SubjectIdentity"]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+    )
+
     provider_runs: Mapped[list["ProviderRun"]] = relationship(
         back_populates="subject",
         cascade="all, delete-orphan",
+    )
+
+
+class SubjectIdentity(Base):
+    """
+    Provider-specific identity linked to a logical Subject.
+
+    Example:
+
+        Subject
+        ├── GitHub identity
+        ├── Steam identity
+        └── Stack Exchange identity
+
+    Provider-specific capabilities belong to the corresponding
+    provider, not to the logical Subject itself.
+    """
+
+    __tablename__ = "subject_identities"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+
+    subject_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey(
+            "subjects.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    provider: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+
+    provider_user_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+
+    username: Mapped[str | None] = mapped_column(
+        String(255),
+    )
+
+    display_name: Mapped[str | None] = mapped_column(
+        String(255),
+    )
+
+    profile_url: Mapped[str | None] = mapped_column(
+        String(1000),
+    )
+
+    confidence: Mapped[float | None]
+
+    identifiers: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    subject: Mapped["Subject"] = relationship(
+        back_populates="identities",
     )
 
 
@@ -214,6 +310,7 @@ class ProviderRun(Base):
         default=uuid4,
     )
 
+    # Existing investigation-based execution path.
     investigation_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey(
@@ -223,6 +320,7 @@ class ProviderRun(Base):
         nullable=True,
     )
 
+    # Subject-scoped execution path.
     subject_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey(
@@ -248,23 +346,23 @@ class ProviderRun(Base):
     )
 
     result: Mapped[dict | None] = mapped_column(
-        JSON
+        JSON,
     )
 
     error_code: Mapped[str | None] = mapped_column(
-        String(100)
+        String(100),
     )
 
     error_message: Mapped[str | None] = mapped_column(
-        Text
+        Text,
     )
 
     started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        DateTime(timezone=True),
     )
 
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        DateTime(timezone=True),
     )
 
     investigation: Mapped["Investigation | None"] = relationship(
