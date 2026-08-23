@@ -5,11 +5,6 @@ from app.providers.base import BaseProvider
 
 
 class CapabilityPlanner:
-    """
-    Validates a requested capability set against
-    the selected provider's capability catalog.
-    """
-
     def build_plan(
         self,
         subject: Subject,
@@ -17,12 +12,16 @@ class CapabilityPlanner:
         requested: list[str],
     ) -> dict[str, Any]:
 
-        definitions = provider.get_capability_definitions()
+        definitions = (
+            provider.get_capability_definitions()
+        )
 
         plan = []
 
         for capability in requested:
-            definition = definitions.get(capability)
+            definition = definitions.get(
+                capability
+            )
 
             if definition is None:
                 plan.append(
@@ -39,12 +38,11 @@ class CapabilityPlanner:
                 {
                     "capability": capability,
                     "supported": True,
-                    "requires_auth": definition.get(
-                        "requires_auth",
-                        False,
+                    "requires_auth": (
+                        definition.requires_auth
                     ),
-                    "description": definition.get(
-                        "description"
+                    "description": (
+                        definition.description
                     ),
                 }
             )

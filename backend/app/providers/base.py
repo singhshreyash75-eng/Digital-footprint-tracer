@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from app.investigations.models import TargetType
+from app.providers.contracts.capability import (
+    CapabilityDefinition,
+)
 from app.providers.schemas import ProviderResult
 
 
@@ -9,13 +12,11 @@ class BaseProvider(ABC):
     name: str
     supported_target_types: set[TargetType]
 
-    # Backward-compatible coarse capability metadata.
     capabilities: dict[str, bool] = {}
 
-    # Fine-grained executable capabilities.
     capability_definitions: dict[
         str,
-        dict[str, Any],
+        CapabilityDefinition,
     ] = {}
 
     supported_identifiers: list[str] = []
@@ -26,17 +27,18 @@ class BaseProvider(ABC):
         target: Any,
         context: dict[str, Any] | None = None,
     ) -> ProviderResult:
-        """Execute the provider against a target."""
         raise NotImplementedError
 
     def get_capabilities(
         self,
     ) -> dict[str, bool]:
-        return dict(self.capabilities)
+        return dict(
+            self.capabilities
+        )
 
     def get_capability_definitions(
         self,
-    ) -> dict[str, dict[str, Any]]:
+    ) -> dict[str, CapabilityDefinition]:
         return dict(
             self.capability_definitions
         )

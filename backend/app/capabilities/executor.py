@@ -11,10 +11,6 @@ class ExecutionTarget:
 
 
 class CapabilityExecutor:
-    """
-    Executes provider collection and filters the resulting
-    observations according to the requested capability set.
-    """
 
     async def execute(
         self,
@@ -38,14 +34,13 @@ class CapabilityExecutor:
                 continue
 
             requested_observation_types.update(
-                definition.get(
-                    "observation_types",
-                    [],
-                )
+                definition.observation_types
             )
 
-        target_value = self._resolve_execution_identifier(
-            subject
+        target_value = (
+            self._resolve_execution_identifier(
+                subject
+            )
         )
 
         target = ExecutionTarget(
@@ -71,9 +66,13 @@ class CapabilityExecutor:
                     {
                         "type": observation.type,
                         "source": observation.source,
-                        "source_url": observation.source_url,
+                        "source_url": (
+                            observation.source_url
+                        ),
                         "data": observation.data,
-                        "confidence": observation.confidence,
+                        "confidence": (
+                            observation.confidence
+                        ),
                     }
                 )
 

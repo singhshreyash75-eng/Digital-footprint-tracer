@@ -13,7 +13,9 @@ from app.providers.schemas import (
     ProviderResult,
     ProviderStatus,
 )
-
+from app.providers.contracts.capability import (
+    CapabilityDefinition,
+)
 
 STEAM_ID64_RE = re.compile(r"^\d{17}$")
 
@@ -43,79 +45,94 @@ class SteamProvider(BaseProvider):
     # Fine-grained capabilities used by the Sprint 6
     # capability planner/executor.
     capability_definitions = {
-        "profile.read": {
-            "description": (
-                "Read public Steam profile information."
-            ),
-            "requires_auth": False,
-            "observation_types": [
-                "STEAM_PROFILE",
-            ],
-        },
-        "games.read": {
-            "description": (
-                "Read publicly available owned-game information."
-            ),
-            "requires_auth": False,
-            "observation_types": [
-                "STEAM_OWNED_GAMES",
-            ],
-        },
-        "history.read": {
-            "description": (
-                "Read publicly available recently played games."
-            ),
-            "requires_auth": False,
-            "observation_types": [
-                "STEAM_RECENTLY_PLAYED",
-            ],
-        },
-        "level.read": {
-            "description": (
-                "Read Steam account level information."
-            ),
-            "requires_auth": False,
-            "observation_types": [
-                "STEAM_LEVEL",
-            ],
-        },
-        "badges.read": {
-            "description": (
-                "Read Steam badge information."
-            ),
-            "requires_auth": False,
-            "observation_types": [
-                "STEAM_BADGES",
-            ],
-        },
-        "security.read": {
-            "description": (
-                "Read publicly available Steam ban-status information."
-            ),
-            "requires_auth": False,
-            "observation_types": [
-                "STEAM_BAN_STATUS",
-            ],
-        },
-        "friends.read": {
-            "description": (
-                "Read publicly available Steam friend information."
-            ),
-            "requires_auth": False,
-            "observation_types": [
-                "STEAM_FRIENDS",
-            ],
-        },
-        "analytics.read": {
-            "description": (
-                "Return DFT-derived Steam activity metrics."
-            ),
-            "requires_auth": False,
-            "observation_types": [
-                "STEAM_DERIVED_METRICS",
-            ],
-        },
-    }
+    "profile.read": CapabilityDefinition(
+        name="profile.read",
+        description=(
+            "Read public Steam profile information."
+        ),
+        requires_auth=False,
+        observation_types=(
+            "STEAM_PROFILE",
+        ),
+    ),
+
+    "games.read": CapabilityDefinition(
+        name="games.read",
+        description=(
+            "Read publicly available owned-game information."
+        ),
+        requires_auth=False,
+        observation_types=(
+            "STEAM_OWNED_GAMES",
+        ),
+    ),
+
+    "history.read": CapabilityDefinition(
+        name="history.read",
+        description=(
+            "Read publicly available recently played games."
+        ),
+        requires_auth=False,
+        observation_types=(
+            "STEAM_RECENTLY_PLAYED",
+        ),
+    ),
+
+    "level.read": CapabilityDefinition(
+        name="level.read",
+        description=(
+            "Read Steam account level information."
+        ),
+        requires_auth=False,
+        observation_types=(
+            "STEAM_LEVEL",
+        ),
+    ),
+
+    "badges.read": CapabilityDefinition(
+        name="badges.read",
+        description=(
+            "Read Steam badge information."
+        ),
+        requires_auth=False,
+        observation_types=(
+            "STEAM_BADGES",
+        ),
+    ),
+
+    "security.read": CapabilityDefinition(
+        name="security.read",
+        description=(
+            "Read publicly available Steam ban status."
+        ),
+        requires_auth=False,
+        observation_types=(
+            "STEAM_BAN_STATUS",
+        ),
+    ),
+
+    "friends.read": CapabilityDefinition(
+        name="friends.read",
+        description=(
+            "Read publicly available Steam friends."
+        ),
+        requires_auth=False,
+        observation_types=(
+            "STEAM_FRIENDS",
+        ),
+    ),
+
+    "analytics.read": CapabilityDefinition(
+        name="analytics.read",
+        description=(
+            "Return DFT-derived Steam activity metrics."
+        ),
+        requires_auth=False,
+        observation_types=(
+            "STEAM_DERIVED_METRICS",
+        ),
+    ),
+}
 
     def _base_params(
         self,
