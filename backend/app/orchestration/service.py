@@ -1,3 +1,5 @@
+import asyncio
+
 from app.capabilities.executor import CapabilityExecutor
 from app.capabilities.planner import CapabilityPlanner
 from app.investigations.models import (
@@ -16,11 +18,10 @@ from .schemas import (
 
 class ProviderOrchestrator:
     """
-    Executes all applicable providers for a Subject.
+    Runs all applicable providers for a Subject concurrently.
 
-    Provider identity matching is case-insensitive so that
-    persisted identities and provider registry names cannot
-    diverge due to casing.
+    Each SubjectIdentity is mapped to its corresponding provider.
+    Each provider then executes only the capabilities it advertises.
     """
 
     def __init__(self) -> None:
@@ -42,57 +43,26 @@ class ProviderOrchestrator:
             request
         )
 
-        results: list[
-            ProviderInvestigationResult
-        ] = []
-
-        for provider in providers:
-            provider_key = (
-                provider.name.strip().lower()
-            )
-
-            identity = identities_by_provider.get(
-                provider_key
-            )
-
-            if identity is None:
-                results.append(
-                    ProviderInvestigationResult(
-                        provider=provider.name,
-                        supported=False,
-                        executed=False,
-                        requested_capabilities=[],
-                        executed_capabilities=[],
-                        observations=[],
-                        errors=[
-                            {
-                                "code": (
-                                    "IDENTITY_NOT_LINKED"
-                                ),
-                                "message": (
-                                    "No identity for this "
-                                    "provider is linked to "
-                                    "the selected Subject."
-                                ),
-                            }
-                        ],
-                    )
-                )
-                continue
-
-            result = await self._run_provider(
+        tasks = [
+            self._run_provider_if_applicable(
                 subject=subject,
-                identity=identity,
+                identity=identities_by_provider.get(
+                    provider.name.strip().lower()
+                ),
                 provider=provider,
                 request=request,
             )
+            for provider in providers
+        ]
 
-            results.append(result)
+        results = await asyncio.gather(
+            *tasks
+        )
 
         return SubjectInvestigationResponse(
             subject_id=subject.id,
-            provider_results=results,
-            total_providers=len(providers),
+            provider_results=list(results),
+            total_providers=len(results),
             executed_providers=sum(
                 1
                 for result in results
@@ -108,21 +78,51 @@ class ProviderOrchestrator:
         if not request.providers:
             return provider_registry.all()
 
-        providers: list[BaseProvider] = []
-
         requested_names = {
             name.strip().lower()
             for name in request.providers
         }
 
-        for provider in provider_registry.all():
-            if (
-                provider.name.strip().lower()
-                in requested_names
-            ):
-                providers.append(provider)
+        return [
+            provider
+            for provider in provider_registry.all()
+            if provider.name.strip().lower()
+            in requested_names
+        ]
 
-        return providers
+    async def _run_provider_if_applicable(
+        self,
+        subject: Subject,
+        identity: SubjectIdentity | None,
+        provider: BaseProvider,
+        request: SubjectInvestigationRequest,
+    ) -> ProviderInvestigationResult:
+
+        if identity is None:
+            return ProviderInvestigationResult(
+                provider=provider.name,
+                supported=False,
+                executed=False,
+                requested_capabilities=[],
+                executed_capabilities=[],
+                observations=[],
+                errors=[
+                    {
+                        "code": "IDENTITY_NOT_LINKED",
+                        "message": (
+                            "No identity for this provider "
+                            "is linked to the selected Subject."
+                        ),
+                    }
+                ],
+            )
+
+        return await self._run_provider(
+            subject=subject,
+            identity=identity,
+            provider=provider,
+            request=request,
+        )
 
     async def _run_provider(
         self,
@@ -136,20 +136,110 @@ class ProviderOrchestrator:
             provider.get_capability_definitions()
         )
 
-        requested = (
-            request.capability_overrides.get(
-                provider.name,
-                [],
-            )
+        requested = self._get_requested_capabilities(
+            provider,
+            definitions,
+            request,
         )
 
-        # Also support case-insensitive provider names
-        # inside capability_overrides.
+        execution_subject = self._build_execution_subject(
+            subject,
+            identity,
+            provider,
+        )
+
+        plan = self.planner.build_plan(
+            subject=execution_subject,
+            provider=provider,
+            requested=requested,
+        )
+
+        if not plan["executable"]:
+            return ProviderInvestigationResult(
+                provider=provider.name,
+                supported=True,
+                executed=False,
+                requested_capabilities=requested,
+                executed_capabilities=[],
+                observations=[],
+                errors=[
+                    {
+                        "code": "UNSUPPORTED_CAPABILITY",
+                        "message": (
+                            "One or more requested "
+                            "capabilities are unsupported."
+                        ),
+                        "plan": plan,
+                    }
+                ],
+            )
+
+        try:
+            execution = await self.executor.execute(
+                subject=execution_subject,
+                provider=provider,
+                capabilities=requested,
+            )
+
+        except Exception as exc:
+            return ProviderInvestigationResult(
+                provider=provider.name,
+                supported=True,
+                executed=False,
+                requested_capabilities=requested,
+                executed_capabilities=[],
+                observations=[],
+                errors=[
+                    {
+                        "code": "PROVIDER_EXECUTION_FAILED",
+                        "message": str(exc),
+                    }
+                ],
+            )
+
+        return ProviderInvestigationResult(
+            provider=provider.name,
+            supported=True,
+            executed=True,
+            requested_capabilities=(
+                execution[
+                    "requested_capabilities"
+                ]
+            ),
+            executed_capabilities=(
+                execution[
+                    "executed_capabilities"
+                ]
+            ),
+            observations=execution[
+                "observations"
+            ],
+            errors=execution[
+                "errors"
+            ],
+        )
+
+    @staticmethod
+    def _get_requested_capabilities(
+        provider: BaseProvider,
+        definitions,
+        request: SubjectInvestigationRequest,
+    ) -> list[str]:
+
+        overrides = (
+            request.capability_overrides
+        )
+
+        requested = overrides.get(
+            provider.name,
+            [],
+        )
+
         if not requested:
             normalized_overrides = {
                 key.strip().lower(): value
                 for key, value
-                in request.capability_overrides.items()
+                in overrides.items()
             }
 
             requested = normalized_overrides.get(
@@ -157,20 +247,22 @@ class ProviderOrchestrator:
                 [],
             )
 
-        # No override = execute every capability
-        # the provider advertises.
-        if not requested:
-            requested = list(
-                definitions.keys()
-            )
+        if requested:
+            return list(requested)
 
-        # ---------------------------------------------------------
-        # Build a provider-specific execution view.
-        #
-        # We preserve the existing Subject object while using the
-        # linked SubjectIdentity as the source of truth for this
-        # provider execution.
-        # ---------------------------------------------------------
+        return list(
+            definitions.keys()
+        )
+
+    @staticmethod
+    def _build_execution_subject(
+        subject: Subject,
+        identity: SubjectIdentity,
+        provider: BaseProvider,
+    ) -> Subject:
+
+        # Preserve the existing Subject DB object while presenting
+        # the selected provider identity to the current executor.
         execution_subject = subject
 
         execution_subject.provider = (
@@ -205,58 +297,4 @@ class ProviderOrchestrator:
             provider.get_capabilities()
         )
 
-        plan = self.planner.build_plan(
-            subject=execution_subject,
-            provider=provider,
-            requested=requested,
-        )
-
-        if not plan["executable"]:
-            return ProviderInvestigationResult(
-                provider=provider.name,
-                supported=True,
-                executed=False,
-                requested_capabilities=requested,
-                executed_capabilities=[],
-                observations=[],
-                errors=[
-                    {
-                        "code": (
-                            "UNSUPPORTED_CAPABILITY"
-                        ),
-                        "message": (
-                            "One or more requested "
-                            "capabilities are unsupported."
-                        ),
-                        "plan": plan,
-                    }
-                ],
-            )
-
-        execution = await self.executor.execute(
-            subject=execution_subject,
-            provider=provider,
-            capabilities=requested,
-        )
-
-        return ProviderInvestigationResult(
-            provider=provider.name,
-            supported=True,
-            executed=True,
-            requested_capabilities=(
-                execution[
-                    "requested_capabilities"
-                ]
-            ),
-            executed_capabilities=(
-                execution[
-                    "executed_capabilities"
-                ]
-            ),
-            observations=execution[
-                "observations"
-            ],
-            errors=execution[
-                "errors"
-            ],
-        )
+        return execution_subject
