@@ -1,3 +1,5 @@
+import asyncio
+
 from app.discovery.adapters.base import (
     DiscoveryAdapter,
 )
@@ -6,6 +8,9 @@ from app.discovery.adapters.github import (
 )
 from app.discovery.adapters.steam import (
     SteamDiscoveryAdapter,
+)
+from app.discovery.adapters.twitch import (
+    TwitchDiscoveryAdapter,
 )
 
 from .scoring import DiscoveryScorer
@@ -18,7 +23,11 @@ class DiscoveryEngine:
 
     Providers implement DiscoveryAdapter.
     The engine combines, normalizes, deduplicates,
-    and ranks their candidates.
+    and ranks candidates.
+
+    Discovery is resilient and concurrent:
+    one provider failing should not prevent
+    other providers from returning candidates.
     """
 
     def __init__(
@@ -29,6 +38,7 @@ class DiscoveryEngine:
         self.adapters = adapters or [
             GitHubDiscoveryAdapter(),
             SteamDiscoveryAdapter(),
+            TwitchDiscoveryAdapter(),
         ]
 
         self.scorer = DiscoveryScorer()
@@ -38,34 +48,69 @@ class DiscoveryEngine:
         query: str,
     ) -> list[DiscoveryCandidate]:
 
+        if not query.strip():
+            return []
+
+        # ---------------------------------------------------------
+        # Run provider discovery concurrently.
+        # ---------------------------------------------------------
+        tasks = [
+            self._search_adapter(
+                adapter,
+                query,
+            )
+            for adapter in self.adapters
+        ]
+
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=False,
+        )
+
         candidates: list[
             DiscoveryCandidate
         ] = []
 
-        for adapter in self.adapters:
-            try:
-                provider_candidates = (
-                    await adapter.search(query)
-                )
-
-            except Exception:
-                # Discovery should be resilient:
-                # one provider failing shouldn't destroy
-                # results from every other provider.
-                continue
-
+        for provider_candidates in results:
             candidates.extend(
                 provider_candidates
             )
 
+        # ---------------------------------------------------------
+        # Remove duplicate identities.
+        # ---------------------------------------------------------
         candidates = self._deduplicate(
             candidates
         )
 
+        # ---------------------------------------------------------
+        # Score and rank the combined candidate set.
+        # ---------------------------------------------------------
         return self.scorer.rank(
             candidates,
             query,
         )
+
+    @staticmethod
+    async def _search_adapter(
+        adapter: DiscoveryAdapter,
+        query: str,
+    ) -> list[DiscoveryCandidate]:
+        """
+        Execute one provider's discovery adapter
+        without allowing its failure to break discovery
+        for all other providers.
+        """
+
+        try:
+            return await adapter.search(
+                query
+            )
+
+        except Exception:
+            # Provider discovery is intentionally isolated.
+            # A failure here should not affect other providers.
+            return []
 
     @staticmethod
     def _deduplicate(
@@ -80,16 +125,20 @@ class DiscoveryEngine:
         for candidate in candidates:
 
             key = (
-                candidate.provider,
+                candidate.provider.strip().lower(),
                 candidate.provider_user_id,
             )
 
-            existing = unique.get(key)
+            existing = unique.get(
+                key
+            )
 
             if existing is None:
                 unique[key] = candidate
                 continue
 
+            # Keep the stronger candidate when the same
+            # provider identity appears more than once.
             if (
                 candidate.confidence
                 > existing.confidence

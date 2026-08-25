@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.investigations.models import Subject
@@ -7,7 +7,22 @@ from app.providers.base import BaseProvider
 
 @dataclass
 class ExecutionTarget:
+    """
+    Normalized execution target passed to a provider.
+
+    normalized_value preserves the existing provider-specific
+    execution behavior.
+
+    provider_user_id is the canonical provider identity and is
+    available to providers that require the provider's immutable ID.
+    """
+
     normalized_value: str
+    provider_user_id: str | None = None
+    username: str | None = None
+    identifiers: dict[str, Any] = field(
+        default_factory=dict
+    )
 
 
 class CapabilityExecutor:
@@ -44,13 +59,35 @@ class CapabilityExecutor:
         )
 
         target = ExecutionTarget(
-            normalized_value=target_value
+            normalized_value=target_value,
+            provider_user_id=(
+                subject.provider_user_id
+            ),
+            username=subject.username,
+            identifiers=dict(
+                subject.identifiers or {}
+            ),
         )
 
         result = await provider.execute(
             target,
             context={
                 "subject_id": str(subject.id),
+
+                "provider": provider.name,
+
+                "provider_user_id": (
+                    subject.provider_user_id
+                ),
+
+                "username": (
+                    subject.username
+                ),
+
+                "identifiers": dict(
+                    subject.identifiers or {}
+                ),
+
                 "requested_capabilities": capabilities,
             },
         )
@@ -124,7 +161,7 @@ class CapabilityExecutor:
             value = identifiers.get(key)
 
             if value:
-                return value
+                return str(value)
 
         if subject.username:
             return subject.username
