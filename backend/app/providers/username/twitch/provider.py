@@ -11,7 +11,10 @@ from app.providers.schemas import (
     ProviderStatus,
 )
 
-from .client import TwitchClient
+from .client import (
+    TwitchAPIError,
+    TwitchClient,
+)
 
 
 class TwitchProvider(BaseProvider):
@@ -96,15 +99,7 @@ class TwitchProvider(BaseProvider):
         target: Any,
         context: dict[str, Any],
     ) -> str:
-        """
-        Resolve the Twitch user ID from the selected
-        provider identity.
 
-        SubjectIdentity.provider_user_id is the canonical
-        identity value for provider execution.
-        """
-
-        # Preferred: explicitly supplied provider user ID.
         context_user_id = context.get(
             "provider_user_id"
         )
@@ -114,7 +109,6 @@ class TwitchProvider(BaseProvider):
                 context_user_id
             ).strip()
 
-        # Subject / identity-like target.
         target_user_id = getattr(
             target,
             "provider_user_id",
@@ -126,7 +120,6 @@ class TwitchProvider(BaseProvider):
                 target_user_id
             ).strip()
 
-        # Fallback for older target-based execution.
         normalized_value = getattr(
             target,
             "normalized_value",
@@ -139,7 +132,73 @@ class TwitchProvider(BaseProvider):
             ).strip()
 
         raise ValueError(
-            "Unable to resolve Twitch provider user ID."
+            "Unable to resolve Twitch "
+            "provider user ID."
+        )
+
+    @staticmethod
+    def _failure_result(
+        exc: TwitchAPIError,
+        observations: list[
+            ProviderObservation
+        ],
+    ) -> ProviderResult:
+
+        status_code = exc.status_code
+
+        if status_code == 429:
+            status = ProviderStatus.RATE_LIMITED
+            error_code = (
+                "TWITCH_RATE_LIMITED"
+            )
+
+        elif status_code == 401:
+            status = ProviderStatus.FAILED
+            error_code = (
+                "TWITCH_UNAUTHORIZED"
+            )
+
+        elif status_code == 403:
+            status = ProviderStatus.FAILED
+            error_code = (
+                "TWITCH_FORBIDDEN"
+            )
+
+        elif status_code == 404:
+            status = ProviderStatus.NOT_FOUND
+            error_code = (
+                "TWITCH_NOT_FOUND"
+            )
+
+        elif status_code is not None and (
+            status_code >= 500
+        ):
+            status = ProviderStatus.FAILED
+            error_code = (
+                "TWITCH_UPSTREAM_ERROR"
+            )
+
+        elif (
+            "timed out"
+            in str(exc).lower()
+        ):
+            status = ProviderStatus.TIMEOUT
+            error_code = (
+                "TWITCH_TIMEOUT"
+            )
+
+        else:
+            status = ProviderStatus.FAILED
+            error_code = (
+                "TWITCH_API_ERROR"
+            )
+
+        return ProviderResult(
+            provider_name="twitch",
+            status=status,
+            observations=observations,
+            error_code=error_code,
+            error_message=str(exc),
         )
 
     async def execute(
@@ -150,25 +209,28 @@ class TwitchProvider(BaseProvider):
 
         context = context or {}
 
-        client = self._get_client()
-
-        requested = set(
-            context.get(
-                "requested_capabilities",
-                self.capability_definitions.keys(),
-            )
-        )
-
         try:
+            client = self._get_client()
+
+            requested = set(
+                context.get(
+                    "requested_capabilities",
+                    self.capability_definitions.keys(),
+                )
+            )
+
             user_id = self._resolve_user_id(
                 target,
                 context,
             )
+
         except Exception as exc:
             return ProviderResult(
                 provider_name=self.name,
                 status=ProviderStatus.FAILED,
-                error_code="TWITCH_IDENTITY_ERROR",
+                error_code=(
+                    "TWITCH_IDENTITY_ERROR"
+                ),
                 error_message=str(exc),
             )
 
@@ -197,10 +259,16 @@ class TwitchProvider(BaseProvider):
                 if not users:
                     return ProviderResult(
                         provider_name=self.name,
-                        status=(
-                            ProviderStatus.NOT_FOUND
-                        ),
+                        status=ProviderStatus.NOT_FOUND,
                         observations=observations,
+                        error_code=(
+                            "TWITCH_USER_NOT_FOUND"
+                        ),
+                        error_message=(
+                            "No Twitch user was found "
+                            "for the selected provider "
+                            "user ID."
+                        ),
                     )
 
                 user = users[0]
@@ -214,9 +282,7 @@ class TwitchProvider(BaseProvider):
                             f"{user.get('login')}"
                         ),
                         data={
-                            "id": user.get(
-                                "id"
-                            ),
+                            "id": user.get("id"),
                             "login": user.get(
                                 "login"
                             ),
@@ -335,7 +401,7 @@ class TwitchProvider(BaseProvider):
                     )
 
             # -------------------------------------------------
-            # STREAM
+            # CURRENT STREAM
             # -------------------------------------------------
             if "stream.read" in requested:
 
@@ -350,6 +416,8 @@ class TwitchProvider(BaseProvider):
                     [],
                 )
 
+                # No stream is a valid public state,
+                # not an API failure.
                 if streams:
                     stream = streams[0]
 
@@ -420,7 +488,7 @@ class TwitchProvider(BaseProvider):
                     )
 
             # -------------------------------------------------
-            # VIDEOS
+            # VIDEOS / VODS
             # -------------------------------------------------
             if "videos.read" in requested:
 
@@ -499,6 +567,7 @@ class TwitchProvider(BaseProvider):
                         source="twitch",
                         source_url=(
                             "https://www.twitch.tv/"
+                            f"{user.get('login')}"
                         ),
                         data={
                             "count": len(videos),
@@ -514,11 +583,17 @@ class TwitchProvider(BaseProvider):
                 observations=observations,
             )
 
+        except TwitchAPIError as exc:
+            return self._failure_result(
+                exc,
+                observations,
+            )
+
         except Exception as exc:
             return ProviderResult(
                 provider_name=self.name,
                 status=ProviderStatus.FAILED,
                 observations=observations,
-                error_code="TWITCH_API_ERROR",
+                error_code="TWITCH_PROVIDER_ERROR",
                 error_message=str(exc),
             )

@@ -2,6 +2,7 @@ from app.discovery.schemas import (
     DiscoveryCandidate,
 )
 from app.providers.username.twitch.client import (
+    TwitchAPIError,
     TwitchClient,
 )
 
@@ -18,21 +19,31 @@ class TwitchDiscoveryAdapter:
         query: str,
     ) -> list[DiscoveryCandidate]:
 
-        payload = (
-            await self.client.search_channels(
-                query=query,
-                first=10,
-                live_only=False,
-            )
+        normalized_query = (
+            query.strip().lower()
         )
+
+        if not normalized_query:
+            return []
+
+        try:
+            payload = (
+                await self.client.search_channels(
+                    query=normalized_query,
+                    first=10,
+                    live_only=False,
+                )
+            )
+
+        except TwitchAPIError:
+            # DiscoveryEngine already isolates provider
+            # failures. Returning [] keeps this adapter
+            # independently safe as well.
+            return []
 
         candidates: list[
             DiscoveryCandidate
         ] = []
-
-        normalized_query = (
-            query.strip().lower()
-        )
 
         for item in payload.get(
             "data",
@@ -47,17 +58,16 @@ class TwitchDiscoveryAdapter:
                 "display_name"
             )
 
-            if not user_id:
+            if not user_id or not login:
                 continue
 
             login_normalized = (
-                login or ""
-            ).lower()
+                login.strip().lower()
+            )
 
-            display_normalized = (
-                display_name or ""
-            ).lower()
-
+            # Twitch search/channels with live_only=false
+            # matches broadcaster login names. Treat an exact
+            # login as the strongest discovery match.
             if (
                 login_normalized
                 == normalized_query
@@ -67,47 +77,37 @@ class TwitchDiscoveryAdapter:
                     "EXACT_LOGIN"
                 )
                 reasons = [
-                    "Exact Twitch login match"
+                    "Exact Twitch broadcaster "
+                    "login match"
                 ]
-
-            elif (
-                display_normalized
-                == normalized_query
-            ):
-                confidence = 0.95
-                match_type = (
-                    "EXACT_DISPLAY_NAME"
-                )
-                reasons = [
-                    "Exact Twitch display name match"
-                ]
-
             else:
                 confidence = 0.75
                 match_type = (
-                    "SEARCH_RELEVANCE"
+                    "LOGIN_SEARCH_MATCH"
                 )
                 reasons = [
-                    "Twitch channel matched "
-                    "the search query"
+                    "Twitch broadcaster login "
+                    "matched the search query"
                 ]
 
             candidates.append(
                 DiscoveryCandidate(
                     provider="twitch",
-                    provider_user_id=user_id,
+                    provider_user_id=str(
+                        user_id
+                    ),
                     username=login,
                     display_name=display_name,
                     profile_url=(
                         f"https://www.twitch.tv/"
                         f"{login}"
-                        if login
-                        else None
                     ),
                     confidence=confidence,
                     identifiers={
-                        "twitch_user_id": user_id,
-                        "login": login or "",
+                        "twitch_user_id": str(
+                            user_id
+                        ),
+                        "login": login,
                     },
                     metadata={
                         "discovery_source": (
@@ -118,20 +118,30 @@ class TwitchDiscoveryAdapter:
                                 "broadcaster_language"
                             )
                         ),
-                        "game_id": item.get(
-                            "game_id"
+                        "game_id": (
+                            item.get(
+                                "game_id"
+                            )
                         ),
-                        "game_name": item.get(
-                            "game_name"
+                        "game_name": (
+                            item.get(
+                                "game_name"
+                            )
                         ),
-                        "is_live": item.get(
-                            "is_live"
+                        "is_live": (
+                            item.get(
+                                "is_live"
+                            )
                         ),
-                        "title": item.get(
-                            "title"
+                        "title": (
+                            item.get(
+                                "title"
+                            )
                         ),
-                        "started_at": item.get(
-                            "started_at"
+                        "started_at": (
+                            item.get(
+                                "started_at"
+                            )
                         ),
                         "match_type": match_type,
                         "reasons": reasons,
