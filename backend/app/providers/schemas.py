@@ -17,7 +17,9 @@ class ProviderObservation:
     type: str
     source: str
     source_url: str | None = None
-    data: dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(
+        default_factory=dict
+    )
     confidence: str = "MEDIUM"
 
 
@@ -25,7 +27,16 @@ class ProviderObservation:
 class ProviderResult:
     provider_name: str
     status: ProviderStatus
-    observations: list[ProviderObservation] = field(default_factory=list)
-    raw_data: dict[str, Any] = field(default_factory=dict)
+
+    observations: list[
+        ProviderObservation
+    ] = field(
+        default_factory=list
+    )
+
+    raw_data: dict[str, Any] = field(
+        default_factory=dict
+    )
+
     error_code: str | None = None
     error_message: str | None = None

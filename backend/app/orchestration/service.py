@@ -1,13 +1,20 @@
 import asyncio
 
-from app.capabilities.executor import CapabilityExecutor
-from app.capabilities.planner import CapabilityPlanner
+from app.capabilities.executor import (
+    CapabilityExecutor,
+)
+from app.capabilities.planner import (
+    CapabilityPlanner,
+)
 from app.investigations.models import (
     Subject,
     SubjectIdentity,
 )
 from app.providers.base import BaseProvider
-from app.providers.registry import provider_registry
+from app.providers.registry import (
+    provider_registry,
+)
+from app.providers.schemas import ProviderStatus
 
 from .schemas import (
     ProviderInvestigationResult,
@@ -20,8 +27,12 @@ class ProviderOrchestrator:
     """
     Runs all applicable providers for a Subject concurrently.
 
-    Each SubjectIdentity is mapped to its corresponding provider.
-    Each provider then executes only the capabilities it advertises.
+    Each provider receives its own selected SubjectIdentity
+    data and never mutates the shared Subject object.
+
+    Provider failures are isolated. One provider returning
+    NOT_FOUND, RATE_LIMITED, TIMEOUT, or FAILED does not
+    terminate the overall investigation.
     """
 
     def __init__(self) -> None:
@@ -46,8 +57,10 @@ class ProviderOrchestrator:
         tasks = [
             self._run_provider_if_applicable(
                 subject=subject,
-                identity=identities_by_provider.get(
-                    provider.name.strip().lower()
+                identity=(
+                    identities_by_provider.get(
+                        provider.name.strip().lower()
+                    )
                 ),
                 provider=provider,
                 request=request,
@@ -101,6 +114,7 @@ class ProviderOrchestrator:
         if identity is None:
             return ProviderInvestigationResult(
                 provider=provider.name,
+                status=ProviderStatus.SKIPPED,
                 supported=False,
                 executed=False,
                 requested_capabilities=[],
@@ -136,20 +150,27 @@ class ProviderOrchestrator:
             provider.get_capability_definitions()
         )
 
-        requested = self._get_requested_capabilities(
-            provider,
-            definitions,
-            request,
+        requested = (
+            self._get_requested_capabilities(
+                provider,
+                definitions,
+                request,
+            )
         )
 
-        execution_subject = self._build_execution_subject(
-            subject,
-            identity,
-            provider,
-        )
+        # -----------------------------------------------------
+        # IMPORTANT:
+        #
+        # Do NOT mutate the shared SQLAlchemy Subject object.
+        #
+        # The selected provider identity is passed explicitly
+        # into the planner/executor.
+        # -----------------------------------------------------
+
+        plan_subject = subject
 
         plan = self.planner.build_plan(
-            subject=execution_subject,
+            subject=plan_subject,
             provider=provider,
             requested=requested,
         )
@@ -157,6 +178,7 @@ class ProviderOrchestrator:
         if not plan["executable"]:
             return ProviderInvestigationResult(
                 provider=provider.name,
+                status=ProviderStatus.SKIPPED,
                 supported=True,
                 executed=False,
                 requested_capabilities=requested,
@@ -175,15 +197,25 @@ class ProviderOrchestrator:
             )
 
         try:
-            execution = await self.executor.execute(
-                subject=execution_subject,
-                provider=provider,
-                capabilities=requested,
+            execution = (
+                await self.executor.execute(
+                    subject=plan_subject,
+                    provider=provider,
+                    capabilities=requested,
+                    provider_user_id=(
+                        identity.provider_user_id
+                    ),
+                    username=identity.username,
+                    identifiers=dict(
+                        identity.identifiers or {}
+                    ),
+                )
             )
 
         except Exception as exc:
             return ProviderInvestigationResult(
                 provider=provider.name,
+                status=ProviderStatus.FAILED,
                 supported=True,
                 executed=False,
                 requested_capabilities=requested,
@@ -191,16 +223,37 @@ class ProviderOrchestrator:
                 observations=[],
                 errors=[
                     {
-                        "code": "PROVIDER_EXECUTION_FAILED",
+                        "code": (
+                            "PROVIDER_EXECUTION_FAILED"
+                        ),
                         "message": str(exc),
                     }
                 ],
             )
 
+        status_value = execution.get(
+            "provider_result_status",
+            ProviderStatus.FAILED.value,
+        )
+
+        try:
+            status = ProviderStatus(
+                status_value
+            )
+        except ValueError:
+            status = ProviderStatus.FAILED
+
+        # "executed" now means that the provider actually
+        # completed its requested capability execution successfully.
+        executed = (
+            status == ProviderStatus.SUCCESS
+        )
+
         return ProviderInvestigationResult(
             provider=provider.name,
+            status=status,
             supported=True,
-            executed=True,
+            executed=executed,
             requested_capabilities=(
                 execution[
                     "requested_capabilities"
@@ -253,48 +306,3 @@ class ProviderOrchestrator:
         return list(
             definitions.keys()
         )
-
-    @staticmethod
-    def _build_execution_subject(
-        subject: Subject,
-        identity: SubjectIdentity,
-        provider: BaseProvider,
-    ) -> Subject:
-
-        # Preserve the existing Subject DB object while presenting
-        # the selected provider identity to the current executor.
-        execution_subject = subject
-
-        execution_subject.provider = (
-            identity.provider
-        )
-
-        execution_subject.provider_user_id = (
-            identity.provider_user_id
-        )
-
-        execution_subject.username = (
-            identity.username
-        )
-
-        execution_subject.display_name = (
-            identity.display_name
-        )
-
-        execution_subject.profile_url = (
-            identity.profile_url
-        )
-
-        execution_subject.confidence = (
-            identity.confidence
-        )
-
-        execution_subject.identifiers = dict(
-            identity.identifiers or {}
-        )
-
-        execution_subject.capabilities = (
-            provider.get_capabilities()
-        )
-
-        return execution_subject

@@ -3,9 +3,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.providers.schemas import ProviderStatus
+
 
 class ProviderExecutionRequest(BaseModel):
     provider: str
+
     capabilities: list[str] = Field(
         default_factory=list
     )
@@ -13,11 +16,11 @@ class ProviderExecutionRequest(BaseModel):
 
 class SubjectInvestigationRequest(BaseModel):
     """
-    Execute the selected subject across all providers that
-    have a usable identity/capability path for that subject.
+    Execute the selected Subject across all registered
+    providers that have a usable identity/capability path.
 
-    If providers is empty, the orchestrator considers every
-    registered provider.
+    If providers is empty, every registered provider
+    is considered.
     """
 
     providers: list[str] = Field(
@@ -34,6 +37,8 @@ class SubjectInvestigationRequest(BaseModel):
 
 class ProviderInvestigationResult(BaseModel):
     provider: str
+
+    status: ProviderStatus
 
     supported: bool
     executed: bool
