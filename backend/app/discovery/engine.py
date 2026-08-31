@@ -13,6 +13,10 @@ from app.discovery.adapters.twitch import (
     TwitchDiscoveryAdapter,
 )
 
+from app.discovery.adapters.stackexchange import (
+    StackExchangeDiscoveryAdapter,
+)
+
 from .scoring import DiscoveryScorer
 from .schemas import DiscoveryCandidate
 
@@ -36,11 +40,11 @@ class DiscoveryEngine:
     ) -> None:
 
         self.adapters = adapters or [
-            GitHubDiscoveryAdapter(),
-            SteamDiscoveryAdapter(),
-            TwitchDiscoveryAdapter(),
-        ]
-
+    GitHubDiscoveryAdapter(),
+    SteamDiscoveryAdapter(),
+    TwitchDiscoveryAdapter(),
+    StackExchangeDiscoveryAdapter(),
+]
         self.scorer = DiscoveryScorer()
 
     async def search(

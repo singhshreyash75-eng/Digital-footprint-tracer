@@ -6,6 +6,9 @@ from app.providers.username.twitch.provider import (
     TwitchProvider,
 )
 
+from app.providers.username.stackexchange.provider import (
+    StackExchangeProvider,
+)
 
 class ProviderRegistry:
     def __init__(self) -> None:
@@ -40,3 +43,6 @@ provider_registry = ProviderRegistry()
 provider_registry.register(GitHubProvider())
 provider_registry.register(SteamProvider())
 provider_registry.register(TwitchProvider())
+provider_registry.register(
+    StackExchangeProvider()
+)
