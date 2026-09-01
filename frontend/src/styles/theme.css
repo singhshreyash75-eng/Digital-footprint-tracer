@@ -1,0 +1,45 @@
+:root {
+  /* -----------------------------------------------
+     DFT COLOR SYSTEM
+  ----------------------------------------------- */
+
+  --bg-primary: #06100b;
+  --bg-secondary: #07130d;
+  --bg-tertiary: #040c08;
+
+  --glass-bg: rgba(18, 35, 27, 0.52);
+  --glass-bg-strong: rgba(20, 40, 30, 0.7);
+
+  --glass-border: rgba(130, 255, 183, 0.14);
+  --glass-border-strong: rgba(130, 255, 183, 0.24);
+
+  --green-primary: #39ff88;
+  --green-secondary: #22c874;
+  --green-muted: #6f9b84;
+
+  --text-primary: #edf8f1;
+  --text-secondary: #9dafA4;
+  --text-dim: #60766a;
+
+  --danger: #ff6173;
+
+  /* -----------------------------------------------
+     SHAPE
+  ----------------------------------------------- */
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+
+  /* -----------------------------------------------
+     GLASS
+  ----------------------------------------------- */
+
+  --blur-glass: 28px;
+  --glass-saturation: 135%;
+
+  --shadow-glass:
+    0 18px 50px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    inset 0 -1px 0 rgba(57, 255, 136, 0.025);
+}
