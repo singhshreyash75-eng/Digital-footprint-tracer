@@ -1,40 +1,34 @@
 import type { ReactNode } from "react";
 
-interface AppShellProps {
+type AppShellProps = {
   children: ReactNode;
-}
+};
 
-export default function AppShell({
-  children,
-}: AppShellProps) {
+export default function AppShell({ children }: AppShellProps) {
   return (
     <div className="app-shell">
-      <header className="topbar glass-surface">
-        <div className="brand">
+      <div className="app-shell__ambient" aria-hidden="true">
+        <div className="ambient-orb ambient-orb--one" />
+        <div className="ambient-orb ambient-orb--two" />
+        <div className="ambient-orb ambient-orb--three" />
+      </div>
+
+      <header className="topbar glass">
+        <div className="topbar__brand">
           <div className="brand-mark">DFT</div>
 
           <div>
-            <div className="brand-name">
-              Digital Footprint Tracer
-            </div>
+            <div className="topbar__title">Digital Footprint Tracer</div>
 
-            <div className="brand-status">
-              <span className="status-dot" />
+            <div className="topbar__subtitle">
+              <span className="live-dot" />
               Intelligence surface
             </div>
           </div>
         </div>
-
-        <div className="topbar-meta">
-          <span>PUBLIC FOOTPRINT</span>
-          <span className="topbar-divider" />
-          <span>v1</span>
-        </div>
       </header>
 
-      <main className="app-content">
-        {children}
-      </main>
+      <main>{children}</main>
     </div>
   );
 }
