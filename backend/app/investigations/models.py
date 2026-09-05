@@ -28,12 +28,11 @@ class InvestigationStatus(str, Enum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
 
-
 class TargetType(str, Enum):
     USERNAME = "USERNAME"
     DOMAIN = "DOMAIN"
     EMAIL = "EMAIL"
-
+  
 
 class ProviderRunStatus(str, Enum):
     PENDING = "PENDING"

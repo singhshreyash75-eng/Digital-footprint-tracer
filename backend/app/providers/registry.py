@@ -10,6 +10,7 @@ from app.providers.username.stackexchange.provider import (
     StackExchangeProvider,
 )
 
+
 class ProviderRegistry:
     def __init__(self) -> None:
         self._providers: dict[str, BaseProvider] = {}
