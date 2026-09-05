@@ -14,7 +14,11 @@ from app.identity.schemas import (
     SubjectCapabilitiesResponse,
     SubjectResponse,
 )
-from app.investigations.models import Subject
+from app.investigations.models import (
+    Subject,
+    SubjectIdentity,
+)
+
 from app.providers.registry import provider_registry
 
 

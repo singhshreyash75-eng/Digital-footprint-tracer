@@ -7,7 +7,8 @@ export type InvestigationStatus =
   | "COMPLETED"
   | "PARTIAL"
   | "FAILED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | string;
 
 export type ProviderRunStatus =
   | "PENDING"
@@ -17,19 +18,60 @@ export type ProviderRunStatus =
   | "RATE_LIMITED"
   | "TIMEOUT"
   | "FAILED"
-  | "SKIPPED";
+  | "SKIPPED"
+  | string;
 
-export interface Investigation {
+export interface Target {
   id: string;
-  name: string;
-  status: InvestigationStatus;
-  started_at?: string | null;
-  completed_at?: string | null;
+  type: string;
+  value: string;
+  normalized_value: string;
+  created_at: string;
+}
+
+export interface ProviderObservation {
+  type?: string;
+  source?: string;
+  source_url?: string | null;
+  data?: Record<string, unknown> | null;
+  confidence?: string | number | null;
+}
+
+export interface ProviderResult {
+  provider_name?: string;
+  status?: ProviderRunStatus;
+  observations?: ProviderObservation[];
+  raw_data?: Record<string, unknown>;
+  error_code?: string | null;
+  error_message?: string | null;
 }
 
 export interface ProviderRun {
   id: string;
   provider_name: string;
   status: ProviderRunStatus;
-  result?: Record<string, unknown> | null;
+  result: ProviderResult | null;
+  error_code: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface Investigation {
+  id: string;
+  name: string;
+  status: InvestigationStatus;
+  created_at: string;
+  targets: Target[];
+  provider_runs: ProviderRun[];
+}
+
+export interface TargetCreate {
+  type: "USERNAME";
+  value: string;
+}
+
+export interface InvestigationCreate {
+  name: string;
+  targets: TargetCreate[];
 }
