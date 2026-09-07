@@ -759,6 +759,63 @@ export default function Home() {
           },
         },
 
+        identity_correlation: {
+          subject_id:
+            subjectId,
+
+          anchor_provider:
+            selectedCandidate.provider,
+
+          linked_identity_count:
+            linkedIdentities.length,
+
+          linked_identities:
+            linkedIdentities.map(
+              (identity) => ({
+                provider:
+                  identity.provider,
+
+                provider_user_id:
+                  identity.provider_user_id,
+
+                username:
+                  identity.username ??
+                  null,
+
+                display_name:
+                  identity.display_name ??
+                  null,
+
+                profile_url:
+                  identity.profile_url ??
+                  null,
+
+                confidence:
+                  identity.confidence ??
+                  null,
+
+                identifiers:
+                  identity.identifiers ??
+                  {},
+              }),
+            ),
+
+          unresolved_providers:
+            providers
+              .filter(
+                (provider) =>
+                  !linkedIdentities.some(
+                    (identity) =>
+                      identity.provider.toLowerCase() ===
+                      provider.id,
+                  ),
+              )
+              .map(
+                (provider) =>
+                  provider.id,
+              ),
+        },
+
         summary: {
           providers_requested:
             providers.length,
