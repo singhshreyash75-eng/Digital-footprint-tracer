@@ -3,25 +3,27 @@ from typing import Any
 
 from app.investigations.models import Subject
 from app.providers.base import BaseProvider
-from app.providers.schemas import ProviderStatus
 
 
 @dataclass
 class ExecutionTarget:
     """
-    Normalized execution target passed to a provider.
+    Provider-safe execution target.
 
     normalized_value:
-        Existing provider-compatible execution identifier.
+        The exact identifier format expected by the provider.
 
     provider_user_id:
-        Canonical provider identity ID.
+        Canonical ID belonging to the provider currently
+        being executed.
 
     username:
-        Provider username/login when available.
+        Provider login/username when available.
 
     identifiers:
-        Provider-specific identifiers.
+        Provider-scoped identifiers.
+
+    Provider IDs must never leak across providers.
     """
 
     normalized_value: str
@@ -36,6 +38,20 @@ class ExecutionTarget:
 
 
 class CapabilityExecutor:
+    """
+    Execute provider capabilities using provider-aware
+    identifier resolution.
+
+    Important invariant:
+
+        GitHub       -> username/login
+        Steam        -> steamid64 / vanity
+        Twitch       -> twitch_user_id
+        StackExchange -> site + site_user_id
+
+    A canonical ID belonging to one provider is never silently
+    reused by another provider.
+    """
 
     async def execute(
         self,
@@ -66,52 +82,149 @@ class CapabilityExecutor:
                 definition.observation_types
             )
 
+        # =====================================================
+        # NORMALIZE EXPLICIT PROVIDER INPUT
+        # =====================================================
+
         effective_provider_user_id = (
-            provider_user_id
-            or subject.provider_user_id
-        )
-
-        effective_username = (
-            username
-            if username is not None
-            else subject.username
-        )
-
-        effective_identifiers = dict(
-            identifiers
-            if identifiers is not None
-            else (
-                subject.identifiers
-                or {}
+            self._clean_value(
+                provider_user_id
             )
         )
 
+        effective_username = (
+            self._clean_value(
+                username
+            )
+        )
+
+        # An explicitly supplied dictionary, including {},
+        # must remain authoritative.
+        #
+        # Falling back to Subject.identifiers here could leak
+        # identifiers belonging to another provider.
+        if identifiers is not None:
+            effective_identifiers = dict(
+                identifiers
+            )
+        else:
+            effective_identifiers = {}
+
+            # Subject identifiers are safe only when executing
+            # the provider from which the Subject originated.
+            if (
+                subject.provider
+                .strip()
+                .lower()
+                ==
+                provider.name
+                .strip()
+                .lower()
+            ):
+                effective_identifiers = dict(
+                    subject.identifiers
+                    or {}
+                )
+
+        effective_identifiers = {
+            str(key): value
+            for key, value
+            in effective_identifiers.items()
+            if (
+                value is not None
+                and str(value).strip()
+            )
+        }
+
+        # Username may safely fall back to Subject.username only
+        # for the Subject's anchor provider.
+        if (
+            effective_username is None
+            and subject.provider
+            .strip()
+            .lower()
+            ==
+            provider.name
+            .strip()
+            .lower()
+        ):
+            effective_username = (
+                self._clean_value(
+                    subject.username
+                )
+            )
+
+        # Canonical provider ID may safely fall back to Subject
+        # only for the Subject's anchor provider.
+        if (
+            effective_provider_user_id is None
+            and subject.provider
+            .strip()
+            .lower()
+            ==
+            provider.name
+            .strip()
+            .lower()
+        ):
+            effective_provider_user_id = (
+                self._clean_value(
+                    subject.provider_user_id
+                )
+            )
+
+        # =====================================================
+        # PROVIDER-AWARE IDENTIFIER RESOLUTION
+        # =====================================================
+
         target_value = (
             self._resolve_execution_identifier(
-                subject=subject,
+                provider_name=(
+                    provider.name
+                ),
                 provider_user_id=(
                     effective_provider_user_id
                 ),
-                username=effective_username,
-                identifiers=effective_identifiers,
+                username=(
+                    effective_username
+                ),
+                identifiers=(
+                    effective_identifiers
+                ),
             )
         )
 
         target = ExecutionTarget(
-            normalized_value=target_value,
+            normalized_value=(
+                target_value
+            ),
+
             provider_user_id=(
                 effective_provider_user_id
             ),
-            username=effective_username,
-            identifiers=effective_identifiers,
+
+            username=(
+                effective_username
+            ),
+
+            identifiers=(
+                effective_identifiers
+            ),
         )
+
+        # =====================================================
+        # PROVIDER EXECUTION
+        # =====================================================
 
         result = await provider.execute(
             target,
             context={
-                "subject_id": str(subject.id),
+                "subject_id": str(
+                    subject.id
+                ),
 
-                "provider": provider.name,
+                "provider": (
+                    provider.name
+                ),
 
                 "provider_user_id": (
                     effective_provider_user_id
@@ -125,30 +238,54 @@ class CapabilityExecutor:
                     effective_identifiers
                 ),
 
-                "requested_capabilities": capabilities,
+                "requested_capabilities": (
+                    capabilities
+                ),
             },
         )
 
-        observations = []
+        # =====================================================
+        # OBSERVATIONS
+        # =====================================================
+
+        observations: list[
+            dict[str, Any]
+        ] = []
 
         for observation in result.observations:
             if (
                 observation.type
-                in requested_observation_types
+                not in requested_observation_types
             ):
-                observations.append(
-                    {
-                        "type": observation.type,
-                        "source": observation.source,
-                        "source_url": (
-                            observation.source_url
-                        ),
-                        "data": observation.data,
-                        "confidence": (
-                            observation.confidence
-                        ),
-                    }
-                )
+                continue
+
+            observations.append(
+                {
+                    "type": (
+                        observation.type
+                    ),
+
+                    "source": (
+                        observation.source
+                    ),
+
+                    "source_url": (
+                        observation.source_url
+                    ),
+
+                    "data": (
+                        observation.data
+                    ),
+
+                    "confidence": (
+                        observation.confidence
+                    ),
+                }
+            )
+
+        # =====================================================
+        # EXECUTED CAPABILITIES
+        # =====================================================
 
         executed_capabilities = [
             capability
@@ -156,13 +293,24 @@ class CapabilityExecutor:
             if capability in definitions
         ]
 
-        errors = []
+        # =====================================================
+        # ERRORS
+        # =====================================================
+
+        errors: list[
+            dict[str, Any]
+        ] = []
 
         if result.error_code:
             errors.append(
                 {
-                    "code": result.error_code,
-                    "message": result.error_message,
+                    "code": (
+                        result.error_code
+                    ),
+
+                    "message": (
+                        result.error_message
+                    ),
                 }
             )
 
@@ -170,61 +318,261 @@ class CapabilityExecutor:
             "provider_result_status": (
                 result.status.value
             ),
-            "requested_capabilities": capabilities,
+
+            "requested_capabilities": (
+                capabilities
+            ),
+
             "executed_capabilities": (
                 executed_capabilities
             ),
-            "observations": observations,
-            "errors": errors,
+
+            "observations": (
+                observations
+            ),
+
+            "errors": (
+                errors
+            ),
         }
 
-    @staticmethod
+    # =========================================================
+    # PROVIDER-AWARE TARGET RESOLUTION
+    # =========================================================
+
+    @classmethod
     def _resolve_execution_identifier(
-        subject: Subject,
+        cls,
+        *,
+        provider_name: str,
         provider_user_id: str | None,
         username: str | None,
         identifiers: dict[str, Any],
     ) -> str:
         """
-        Preserve the existing provider-compatible identifier
-        resolution while allowing provider-specific identity
-        data to be supplied explicitly.
+        Resolve the execution target according to the provider's
+        actual identifier contract.
 
-        Provider-specific identifiers remain preferred where
-        they already exist, preserving GitHub/Steam behavior.
+        There is intentionally no generic global identifier
+        priority list here.
         """
 
-        preferred_keys = (
-            "steamid64",
-            "github_id",
-            "twitch_user_id",
-            "channel_id",
-            "username",
-            "login",
-            "profile_url",
-            "vanity_url",
+        provider = (
+            provider_name
+            .strip()
+            .lower()
         )
 
-        for key in preferred_keys:
-            value = identifiers.get(key)
+        # -----------------------------------------------------
+        # GitHub
+        #
+        # GitHubProvider calls:
+        #
+        #     /users/{target.normalized_value}
+        #
+        # Therefore normalized_value MUST be a GitHub login,
+        # not the numeric github_id.
+        # -----------------------------------------------------
 
-            if value:
-                return str(value)
-
-        if username:
-            return str(username)
-
-        if provider_user_id:
-            return str(provider_user_id)
-
-        if subject.username:
-            return str(subject.username)
-
-        if subject.provider_user_id:
-            return str(
-                subject.provider_user_id
+        if provider == "github":
+            value = cls._first_value(
+                identifiers,
+                (
+                    "username",
+                    "login",
+                ),
             )
 
-        raise ValueError(
-            "Unable to resolve execution identifier."
+            value = (
+                value
+                or username
+            )
+
+            if value:
+                return value
+
+            raise ValueError(
+                "Unable to resolve GitHub username/login."
+            )
+
+        # -----------------------------------------------------
+        # Steam
+        #
+        # Prefer Steam's canonical SteamID64. If discovery has
+        # supplied a vanity identifier, it may be used as a
+        # provider-native fallback.
+        # -----------------------------------------------------
+
+        if provider == "steam":
+            value = cls._first_value(
+                identifiers,
+                (
+                    "steamid64",
+                    "vanity_url",
+                    "profile_url",
+                ),
+            )
+
+            if value:
+                return value
+
+            if provider_user_id:
+                return provider_user_id
+
+            if username:
+                return username
+
+            raise ValueError(
+                "Unable to resolve Steam identity."
+            )
+
+        # -----------------------------------------------------
+        # Twitch
+        #
+        # Current TwitchProvider performs get_users_by_id().
+        # Therefore it requires a real Twitch canonical user ID.
+        # A GitHub/Steam/etc. username must not be substituted.
+        # -----------------------------------------------------
+
+        if provider == "twitch":
+            value = cls._first_value(
+                identifiers,
+                (
+                    "twitch_user_id",
+                ),
+            )
+
+            value = (
+                value
+                or provider_user_id
+            )
+
+            if value:
+                return value
+
+            raise ValueError(
+                "Unable to resolve Twitch user ID."
+            )
+
+        # -----------------------------------------------------
+        # Stack Exchange
+        #
+        # StackExchangeProvider resolves site + site_user_id
+        # from identifiers/context. normalized_value is not the
+        # authoritative identity, but it still needs a valid
+        # provider-safe value for ExecutionTarget.
+        # -----------------------------------------------------
+
+        if provider == "stackexchange":
+            site = cls._clean_value(
+                identifiers.get(
+                    "site"
+                )
+            )
+
+            site_user_id = (
+                cls._clean_value(
+                    identifiers.get(
+                        "site_user_id"
+                    )
+                )
+            )
+
+            if (
+                site
+                and site_user_id
+            ):
+                return (
+                    f"{site}:"
+                    f"{site_user_id}"
+                )
+
+            # A linked StackExchange identity may already use
+            # provider_user_id = "site:user_id".
+            if (
+                provider_user_id
+                and ":"
+                in provider_user_id
+            ):
+                return provider_user_id
+
+            raise ValueError(
+                "Unable to resolve Stack Exchange "
+                "site and site user ID."
+            )
+
+        # -----------------------------------------------------
+        # Future providers
+        #
+        # Conservative generic fallback: explicitly supplied
+        # username/login first, then provider-specific canonical
+        # ID. Never inspect foreign Subject identifiers here.
+        # -----------------------------------------------------
+
+        value = cls._first_value(
+            identifiers,
+            (
+                "username",
+                "login",
+            ),
         )
+
+        value = (
+            value
+            or username
+            or provider_user_id
+        )
+
+        if value:
+            return value
+
+        raise ValueError(
+            f"Unable to resolve execution identifier "
+            f"for provider '{provider_name}'."
+        )
+
+    # =========================================================
+    # HELPERS
+    # =========================================================
+
+    @staticmethod
+    def _first_value(
+        identifiers: dict[str, Any],
+        keys: tuple[str, ...],
+    ) -> str | None:
+
+        for key in keys:
+            value = (
+                identifiers.get(
+                    key
+                )
+            )
+
+            normalized = (
+                CapabilityExecutor
+                ._clean_value(
+                    value
+                )
+            )
+
+            if normalized:
+                return normalized
+
+        return None
+
+    @staticmethod
+    def _clean_value(
+        value: Any,
+    ) -> str | None:
+
+        if value is None:
+            return None
+
+        normalized = str(
+            value
+        ).strip()
+
+        if not normalized:
+            return None
+
+        return normalized

@@ -5,8 +5,7 @@ from pydantic import BaseModel, Field
 
 class IdentityCandidate(BaseModel):
     """
-    Normalized identity candidate returned by provider-specific
-    identity resolvers.
+    Public identity candidate returned by discovery.
     """
 
     provider: str
@@ -14,6 +13,7 @@ class IdentityCandidate(BaseModel):
 
     username: str | None = None
     display_name: str | None = None
+
     profile_url: str | None = None
     avatar_url: str | None = None
 
@@ -29,7 +29,9 @@ class IdentityCandidate(BaseModel):
         le=100,
     )
 
-    match_type: str = "SEARCH_RELEVANCE"
+    match_type: str = (
+        "SEARCH_RELEVANCE"
+    )
 
     reasons: list[str] = Field(
         default_factory=list
@@ -44,32 +46,43 @@ class IdentityCandidate(BaseModel):
     company: str | None = None
     blog: str | None = None
 
-    identifiers: dict[str, str] = Field(
+    identifiers: dict[
+        str,
+        str,
+    ] = Field(
         default_factory=dict
     )
 
 
-class IdentitySearchRequest(BaseModel):
+class IdentitySearchRequest(
+    BaseModel
+):
     query: str = Field(
         min_length=1,
         max_length=255,
     )
 
 
-class IdentitySearchResponse(BaseModel):
+class IdentitySearchResponse(
+    BaseModel
+):
     query: str
-    candidates: list[IdentityCandidate] = Field(
+
+    candidates: list[
+        IdentityCandidate
+    ] = Field(
         default_factory=list
     )
 
 
-class IdentitySelectRequest(BaseModel):
+class IdentitySelectRequest(
+    BaseModel
+):
     """
-    Select a discovery candidate.
+    Select an anchor identity.
 
-    The backend re-runs discovery for the supplied query and
-    verifies that the selected provider identity actually
-    belongs to the discovered candidate set.
+    Backend re-runs discovery and verifies the selected
+    provider identity before creating the Subject.
     """
 
     query: str = Field(
@@ -88,45 +101,133 @@ class IdentitySelectRequest(BaseModel):
     )
 
 
-class IdentitySelectResponse(BaseModel):
-    subject_id: UUID
-
+class CorrelatedIdentity(
+    BaseModel
+):
     provider: str
+
     provider_user_id: str
 
     username: str | None = None
+
     display_name: str | None = None
+
+    profile_url: str | None = None
+
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+
+    confidence_percent: int = Field(
+        ge=0,
+        le=100,
+    )
+
+    reasons: list[str] = Field(
+        default_factory=list
+    )
+
+    identifiers: dict[
+        str,
+        str,
+    ] = Field(
+        default_factory=dict
+    )
+
+    auto_linked: bool = False
+
+
+class IdentitySelectResponse(
+    BaseModel
+):
+    subject_id: UUID
+
+    provider: str
+
+    provider_user_id: str
+
+    username: str | None = None
+
+    display_name: str | None = None
+
     profile_url: str | None = None
 
     confidence: float | None = None
 
-    identifiers: dict[str, str]
-    capabilities: dict[str, bool]
+    identifiers: dict[
+        str,
+        str,
+    ]
+
+    capabilities: dict[
+        str,
+        bool,
+    ]
 
     selected: bool = True
 
+    linked_identities: list[
+        CorrelatedIdentity
+    ] = Field(
+        default_factory=list
+    )
 
-class SubjectResponse(BaseModel):
+    possible_identities: list[
+        CorrelatedIdentity
+    ] = Field(
+        default_factory=list
+    )
+
+
+class SubjectResponse(
+    BaseModel
+):
     subject_id: UUID
 
     provider: str
+
     provider_user_id: str
 
     username: str | None = None
+
     display_name: str | None = None
+
     profile_url: str | None = None
 
     confidence: float | None = None
 
-    identifiers: dict[str, str]
-    capabilities: dict[str, bool]
+    identifiers: dict[
+        str,
+        str,
+    ]
+
+    capabilities: dict[
+        str,
+        bool,
+    ]
+
+    linked_identities: list[
+        CorrelatedIdentity
+    ] = Field(
+        default_factory=list
+    )
 
 
-class SubjectCapabilitiesResponse(BaseModel):
+class SubjectCapabilitiesResponse(
+    BaseModel
+):
     subject_id: UUID
 
     provider: str
+
     provider_user_id: str
 
-    capabilities: dict[str, bool]
-    supported_identifiers: list[str]
+    capabilities: dict[
+        str,
+        bool,
+    ]
+
+    supported_identifiers: list[
+        str
+    ]

@@ -14,10 +14,87 @@ from app.providers.schemas import (
     ProviderStatus,
 )
 
+from app.providers.contracts.capability import (
+    CapabilityDefinition,
+)
+
 
 class GitHubProvider(BaseProvider):
     name = "github"
     supported_target_types = {TargetType.USERNAME}
+
+    capabilities = {
+        "discover": True,
+        "read": True,
+        "write": False,
+        "create": False,
+        "history": True,
+        "enrich": True,
+    }
+
+    supported_identifiers = [
+        "github_id",
+        "username",
+        "login",
+        "profile_url",
+    ]
+
+    capability_definitions = {
+        "profile.read": CapabilityDefinition(
+            name="profile.read",
+            description=(
+                "Read public GitHub profile information."
+            ),
+            requires_auth=False,
+            observation_types=(
+                "GITHUB_PROFILE",
+            ),
+        ),
+
+        "repositories.read": CapabilityDefinition(
+            name="repositories.read",
+            description=(
+                "Read public GitHub repositories."
+            ),
+            requires_auth=False,
+            observation_types=(
+                "GITHUB_REPOSITORIES",
+            ),
+        ),
+
+        "organizations.read": CapabilityDefinition(
+            name="organizations.read",
+            description=(
+                "Read public GitHub organizations."
+            ),
+            requires_auth=False,
+            observation_types=(
+                "GITHUB_ORGANIZATIONS",
+            ),
+        ),
+
+        "gists.read": CapabilityDefinition(
+            name="gists.read",
+            description=(
+                "Read public GitHub gists."
+            ),
+            requires_auth=False,
+            observation_types=(
+                "GITHUB_GISTS",
+            ),
+        ),
+
+        "activity.read": CapabilityDefinition(
+            name="activity.read",
+            description=(
+                "Read public GitHub activity."
+            ),
+            requires_auth=False,
+            observation_types=(
+                "GITHUB_PUBLIC_ACTIVITY",
+            ),
+        ),
+    }
 
     def _headers(self) -> dict[str, str]:
         return {

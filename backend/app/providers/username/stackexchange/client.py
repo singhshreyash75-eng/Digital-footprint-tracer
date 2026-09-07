@@ -8,9 +8,7 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
 
-load_dotenv(
-    PROJECT_ROOT / ".env"
-)
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 class StackExchangeAPIError(RuntimeError):
@@ -33,8 +31,7 @@ class StackExchangeAPIError(RuntimeError):
 
 class StackExchangeClient:
     BASE_URL = "https://api.stackexchange.com/2.3"
-
-    DEFAULT_TIMEOUT = 20.0
+    DEFAULT_TIMEOUT = 10.0
 
     def __init__(self) -> None:
         self.api_key = os.getenv(
@@ -53,10 +50,7 @@ class StackExchangeClient:
         site: str | None = None,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-
-        request_params = dict(
-            params or {}
-        )
+        request_params = dict(params or {})
 
         if site:
             request_params["site"] = site
@@ -71,7 +65,6 @@ class StackExchangeClient:
                     f"{self.BASE_URL}/{endpoint}",
                     params=request_params,
                 )
-
         except httpx.TimeoutException as exc:
             raise StackExchangeAPIError(
                 (
@@ -79,7 +72,6 @@ class StackExchangeClient:
                     f"timed out for /{endpoint}."
                 )
             ) from exc
-
         except httpx.HTTPError as exc:
             raise StackExchangeAPIError(
                 (
@@ -90,10 +82,7 @@ class StackExchangeClient:
 
         if response.status_code == 429:
             raise StackExchangeAPIError(
-                (
-                    "Stack Exchange API request "
-                    "was rate limited."
-                ),
+                "Stack Exchange API request was rate limited.",
                 status_code=429,
             )
 
@@ -109,15 +98,12 @@ class StackExchangeClient:
 
         try:
             payload = response.json()
-
         except ValueError as exc:
             raise StackExchangeAPIError(
                 "Stack Exchange API returned invalid JSON."
             ) from exc
 
-        backoff = payload.get(
-            "backoff"
-        )
+        backoff = payload.get("backoff")
 
         if backoff is not None:
             try:
@@ -133,12 +119,8 @@ class StackExchangeClient:
                     f"({payload.get('error_id')})"
                 ),
                 status_code=response.status_code,
-                error_id=payload.get(
-                    "error_id"
-                ),
-                error_name=payload.get(
-                    "error_name"
-                ),
+                error_id=payload.get("error_id"),
+                error_name=payload.get("error_name"),
                 backoff=backoff,
             )
 
@@ -149,9 +131,8 @@ class StackExchangeClient:
         *,
         site: str,
         query: str,
-        pagesize: int = 20,
+        pagesize: int = 12,
     ) -> dict[str, Any]:
-
         normalized_query = query.strip()
 
         if not normalized_query:
@@ -161,17 +142,15 @@ class StackExchangeClient:
                 "quota_remaining": None,
             }
 
-        pagesize = max(
-            1,
-            min(pagesize, 100),
-        )
-
         return await self._get(
             "users",
             site=site,
             params={
                 "inname": normalized_query,
-                "pagesize": pagesize,
+                "pagesize": max(
+                    1,
+                    min(pagesize, 100),
+                ),
                 "order": "desc",
                 "sort": "reputation",
             },
@@ -183,7 +162,6 @@ class StackExchangeClient:
         site: str,
         user_ids: list[int],
     ) -> dict[str, Any]:
-
         valid_ids = [
             int(value)
             for value in user_ids
@@ -212,17 +190,14 @@ class StackExchangeClient:
         user_id: int,
         pagesize: int = 20,
     ) -> dict[str, Any]:
-
-        pagesize = max(
-            1,
-            min(pagesize, 100),
-        )
-
         return await self._get(
             f"users/{user_id}/posts",
             site=site,
             params={
-                "pagesize": pagesize,
+                "pagesize": max(
+                    1,
+                    min(pagesize, 100),
+                ),
                 "order": "desc",
                 "sort": "activity",
             },
@@ -235,17 +210,14 @@ class StackExchangeClient:
         user_id: int,
         pagesize: int = 100,
     ) -> dict[str, Any]:
-
-        pagesize = max(
-            1,
-            min(pagesize, 100),
-        )
-
         return await self._get(
             f"users/{user_id}/badges",
             site=site,
             params={
-                "pagesize": pagesize,
+                "pagesize": max(
+                    1,
+                    min(pagesize, 100),
+                ),
                 "order": "desc",
                 "sort": "rank",
             },
@@ -258,17 +230,14 @@ class StackExchangeClient:
         user_id: int,
         pagesize: int = 20,
     ) -> dict[str, Any]:
-
-        pagesize = max(
-            1,
-            min(pagesize, 100),
-        )
-
         return await self._get(
             f"users/{user_id}/reputation",
             site=site,
             params={
-                "pagesize": pagesize,
+                "pagesize": max(
+                    1,
+                    min(pagesize, 100),
+                ),
                 "order": "desc",
                 "sort": "post_id",
             },
@@ -281,17 +250,14 @@ class StackExchangeClient:
         user_id: int,
         pagesize: int = 20,
     ) -> dict[str, Any]:
-
-        pagesize = max(
-            1,
-            min(pagesize, 100),
-        )
-
         return await self._get(
             f"users/{user_id}/comments",
             site=site,
             params={
-                "pagesize": pagesize,
+                "pagesize": max(
+                    1,
+                    min(pagesize, 100),
+                ),
                 "order": "desc",
                 "sort": "creation",
             },
@@ -300,9 +266,10 @@ class StackExchangeClient:
     async def get_associated_users(
         self,
         *,
-        user_id: int,
+        account_id: int,
     ) -> dict[str, Any]:
-
+        # This endpoint is network-scoped and expects a
+        # Stack Exchange account_id, not a site-specific user_id.
         return await self._get(
-            f"users/{user_id}/associated"
+            f"users/{account_id}/associated"
         )

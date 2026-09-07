@@ -123,7 +123,7 @@ class StackExchangeProvider(BaseProvider):
     def _resolve_identity(
         target: Any,
         context: dict[str, Any],
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, int | None]:
 
         identifiers = dict(
             context.get(
@@ -196,9 +196,34 @@ class StackExchangeProvider(BaseProvider):
                 "must be an integer."
             ) from exc
 
+        account_id_value = (
+            identifiers.get(
+                "account_id"
+            )
+            or context.get(
+                "account_id"
+            )
+        )
+
+        account_id: int | None = None
+
+        if account_id_value not in (
+            None,
+            "",
+        ):
+            try:
+                account_id = int(
+                    str(
+                        account_id_value
+                    ).strip()
+                )
+            except ValueError:
+                account_id = None
+
         return (
             str(site).strip().lower(),
             user_id,
+            account_id,
         )
 
     @staticmethod
@@ -275,7 +300,7 @@ class StackExchangeProvider(BaseProvider):
                 )
             )
 
-            site, user_id = (
+            site, user_id, account_id = (
                 self._resolve_identity(
                     target,
                     context,
@@ -583,11 +608,17 @@ class StackExchangeProvider(BaseProvider):
                 # IMPORTANT:
                 # /users/{id}/associated is a network-level
                 # endpoint and MUST NOT receive a site parameter.
-                payload = (
-                    await client.get_associated_users(
-                        user_id=user_id,
+                if account_id is not None:
+                    payload = (
+                        await client.get_associated_users(
+                            account_id=account_id,
+                        )
                     )
-                )
+                else:
+                    payload = {
+                        "items": [],
+                        "has_more": False,
+                    }
 
                 observations.append(
                     ProviderObservation(
