@@ -1,4 +1,39 @@
-# Digital Footprint Tracer
+::: {align="center"}
+# 🛰️ Digital Footprint Tracer
+
+### Discover identities · Correlate evidence · Investigate public footprints
+
+![Release](https://img.shields.io/badge/release-v1.0.0-22c55e?style=for-the-badge)
+![FastAPI](https://img.shields.io/badge/FastAPI-Python-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-TypeScript-3178C6?style=for-the-badge&logo=react&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+
+`GitHub` · `Steam` · `Twitch` · `Stack Exchange`
+:::
+
+> 🔎 **A matching name is evidence --- not proof of identity.**
+
+### ⚡ What DFT does
+
+  -----------------------------------------------------------------------
+  Stage                               Purpose
+  ----------------------------------- -----------------------------------
+  🔍 **Discover**                     Find public identity candidates
+
+  🧩 **Correlate**                    Score reusable cross-provider
+                                      identity signals
+
+  ✅ **Verify**                       Keep ambiguous matches
+                                      operator-confirmed
+
+  🛰️ **Investigate**                  Execute provider-native public-data
+                                      capabilities
+
+  📦 **Report**                       Export linked identities and
+                                      observations as JSON
+  -----------------------------------------------------------------------
+
+------------------------------------------------------------------------
 
 > A provider-aware public identity discovery, cross-platform
 > correlation, and digital-footprint investigation system.
@@ -75,7 +110,7 @@ provider-specific discovery adapters and capability implementations.
 
 ------------------------------------------------------------------------
 
-## Overview
+## 🎯 Overview
 
 A traditional username lookup asks:
 
@@ -145,7 +180,7 @@ DFT addresses this by separating the problem into four layers:
 
 ------------------------------------------------------------------------
 
-## Core Architecture
+## 🏗️ Core Architecture
 
 ``` mermaid
 flowchart TD
@@ -198,7 +233,7 @@ flowchart TD
 
 ------------------------------------------------------------------------
 
-## Investigation Workflow
+## 🔄 Investigation Workflow
 
 ### Step 1 --- Search
 
@@ -326,7 +361,7 @@ rate-limited.
 
 ------------------------------------------------------------------------
 
-## Cross-Provider Correlation
+## 🧩 Cross-Provider Correlation
 
 Correlation is intentionally separate from discovery.
 
@@ -451,7 +486,7 @@ correlation.
 
 ------------------------------------------------------------------------
 
-## Supported Inputs
+## ⌨️ Supported Inputs
 
 ### GitHub
 
@@ -578,7 +613,7 @@ they represent different scopes in the Stack Exchange network.
 
 ------------------------------------------------------------------------
 
-## Investigation Reports
+## 📊 Investigation Reports
 
 DFT normalizes provider output into structured observations.
 
@@ -654,7 +689,7 @@ invalidate successful evidence returned by other providers.
 
 ------------------------------------------------------------------------
 
-## Tech Stack
+## 🛠️ Tech Stack
 
 ### Backend
 
@@ -725,7 +760,7 @@ Digital-footprint-tracer/
 
 ------------------------------------------------------------------------
 
-## Installation
+## 📦 Installation
 
 ### Prerequisites
 
@@ -930,7 +965,7 @@ Terminal 4 → Vite
 
 ------------------------------------------------------------------------
 
-## API Architecture
+## 🔌 API Architecture
 
 ### Identity Search
 
@@ -1130,7 +1165,7 @@ terms, organizational policies, and consent requirements.
 
 ------------------------------------------------------------------------
 
-## Security
+## 🔒 Security
 
 ### API Credentials
 
@@ -1247,7 +1282,7 @@ globally.
 
 ------------------------------------------------------------------------
 
-## Roadmap
+## 🗺️ Roadmap
 
 ### v1.0
 
@@ -1300,7 +1335,7 @@ Potential larger architecture:
 
 ------------------------------------------------------------------------
 
-## Future SaaS Direction
+## ☁️ Future SaaS Direction
 
 The current project is structured as a foundation rather than a one-off
 username checker.
