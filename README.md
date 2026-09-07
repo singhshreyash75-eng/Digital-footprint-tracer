@@ -1,4 +1,4 @@
-::: {align="center"}
+
 # 🛰️ Digital Footprint Tracer
 
 ### Discover identities · Correlate evidence · Investigate public footprints
@@ -1335,53 +1335,12 @@ Potential larger architecture:
 
 ------------------------------------------------------------------------
 
-## ☁️ Future SaaS Direction
+## Design Principles
 
-The current project is structured as a foundation rather than a one-off
-username checker.
-
-``` text
-Users / Organizations
-        ↓
-Workspaces
-        ↓
-Investigations
-        ↓
-Subjects
-        ↓
-Identity Graph
-        ↓
-Provider Identities
-        ↓
-Capability Jobs
-        ↓
-Evidence
-        ↓
-Reports
-```
-
-Potential SaaS infrastructure:
-
-``` text
-Authentication
-RBAC
-Usage quotas
-Billing
-Background job orchestration
-Persistent investigation history
-Audit logs
-Provider credential management
-Rate-limit coordination
-Caching
-Observability
-Team workspaces
-Scheduled investigations
-Webhook/API access
-```
 
 ------------------------------------------------------------------------
 
-## Design Principles
+
 
 ### Provider Neutrality
 
@@ -1495,3 +1454,5 @@ into the core orchestration layer.
 
 Built as an extensible foundation for public identity resolution and
 multi-provider digital-footprint analysis.
+
+#Author -> Shreyash Singh (BTech CSE Cybersecurity student 2nd year , UPES Dehradun)
